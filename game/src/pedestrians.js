@@ -242,6 +242,27 @@ export class Crowd {
     person.timer = this.rng.range(2.4, 7.5);
   }
 
+  /** Pack the pavement in view, for a staged frame: every walker takes a spot
+   *  near the point the camera frames, so the junction is busy and not a prop. */
+  gather(focus, radius = 60) {
+    const near = this._spots().filter((spot) => Math.hypot(spot.x - focus.x, spot.z - focus.z) <= radius);
+    if (!near.length) return;
+    for (const person of this.people) {
+      const spot = near[Math.floor(this.rng.next() * near.length) % near.length];
+      const birth = clearOfBlocks(spot.x + this.rng.jitter(spot.r), spot.z + this.rng.jitter(spot.r * 0.6));
+      person.x = birth.x;
+      person.z = birth.z;
+      person.y = groundHeight(birth.x, birth.z);
+      person.home = { x: spot.x, z: spot.z, r: spot.r };
+      person.kind = spot.kind;
+      person.state = 'idle';
+      person.speed = 0;
+      person.timer = this.rng.range(0.6, 3.2);
+      if (this.rng.chance(0.7)) this._wander(person);
+    }
+    this._paint();
+  }
+
   update(dt, ctx) {
     this.clock += dt;
     for (let i = this.threats.length - 1; i >= 0; i--) {

@@ -91,12 +91,18 @@ the kit's `buildDossier`.
 ## Checking it
 
 ```sh
-python3 tools/verify_stage_b.py   # drives it in the Playwright Chromium and prints a report
+python3 tools/check_gate.py                 # the gate's numeric limits
+python3 tools/verify_output.py /tmp/stagec  # loads the SHIPPED copy, fails on console errors
+python3 tools/verify_stage_b.py             # drives it in the Playwright Chromium and prints a report
 ```
 
 The verifier counts the cars and walkers that moved between frames, measures the traffic at the
 busiest junction, completes the first job with key presses, steals a car, watches the stars rise and
 a cruiser answer, fires the pistol, and checks the payout in the HUD and in `localStorage`.
+
+Screenshots come from `python3 tools/shots.py`: it serves `game/`, opens each staged scene from
+`shots.json` (`?shot=<scene>&seed=1&quality=low`) and writes 1280x720 JPEGs straight into
+`screenshots/`, re-taking a frame at a lower quality if it would pass 256 KiB.
 
 ## Licence
 

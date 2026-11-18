@@ -42,26 +42,31 @@ const SHOTS = {
   },
   street: {
     time: 0.86,
-    player: [1.6, 37.4, 0.35],
-    car: [9.5, 30.6, -Math.PI / 2],
-    eye: [11.5, 2.3, 55],
-    look: [3.5, 4.2, 6],
-    fov: 58,
+    player: [37, 33, Math.PI],
+    car: [33, 40, 0],
+    eye: [29, 3.4, 92],
+    look: [29, 1.4, 26],
+    fov: 55,
+    focus: [29, 40],
+    restock: 45,
+    crowd: 70,
   },
   chase: {
     time: 0.78,
     player: [16.2, 34.7, 0],
     car: [16.4, 34.6, -Math.PI / 2],
     driving: true,
-    eye: [29.5, 3.5, 37.6],
-    look: [1, 1.6, 33.4],
-    fov: 55,
+    eye: [34, 3.6, 34.8],
+    look: [-12, 1.3, 34.3],
+    fov: 48,
+    focus: [8, 34],
+    crowd: 60,
     stage: 'chase',
     police: [
-      { x: 7.6, z: 33.2, yaw: -Math.PI / 2 },
-      { x: 3.0, z: 35.9, yaw: -Math.PI / 2 },
-      { x: -1.8, z: 32.6, yaw: -Math.PI / 2 },
-      { x: -7.0, z: 35.1, yaw: -Math.PI / 2 },
+      { x: 12.5, z: 32.8, yaw: -Math.PI / 2 },
+      { x: 7.2, z: 35.8, yaw: -Math.PI / 2 },
+      { x: 1.6, z: 33.0, yaw: -Math.PI / 2 },
+      { x: -4.2, z: 35.4, yaw: -Math.PI / 2 },
     ],
   },
   mission: {
@@ -71,15 +76,20 @@ const SHOTS = {
     eye: [-1.5, 2.35, 40.2],
     look: [15.5, 1.4, 34.3],
     fov: 54,
+    restock: 55,
+    crowd: 45,
     stage: 'mission',
   },
   vista: {
     time: 0.9,
     player: [3, 35.6, 0],
     car: [4.2, 31.6, -Math.PI / 2],
-    eye: [-46, 24, 336],
-    look: [6, 10, 120],
-    fov: 46,
+    eye: [-30, 24, 258],
+    look: [40, 4, 175],
+    fov: 50,
+    focus: [40, 178],
+    restock: 90,
+    crowd: 80,
   },
 };
 
@@ -127,6 +137,7 @@ const save = new Save();
 let mode = 'walk';
 let paused = false;
 let staged = false;
+let stagedFocus = null;
 let nearCar = false;
 let frames = 0;
 let elapsed = 0;
@@ -391,6 +402,11 @@ function applyShot(name) {
   player.teleport(pose.player[0], pose.player[1], pose.player[2]);
   player.setVisible(!pose.driving);
   car.place(pose.car[0], pose.car[1], pose.car[2]);
+  // traffic respawns around the point the shot actually frames, so the coast
+  // road carries cars instead of whatever happens to sit near the player pose
+  stagedFocus = pose.focus ? { x: pose.focus[0], z: pose.focus[1] } : { x: pose.look[0], z: pose.look[2] };
+  if (pose.restock) traffic.reseed(stagedFocus, pose.restock);
+  if (pose.crowd) crowd.gather(stagedFocus, pose.crowd);
   chase.place(
     new THREE.Vector3(pose.eye[0], pose.eye[1], pose.eye[2]),
     new THREE.Vector3(pose.look[0], pose.look[1], pose.look[2]),
@@ -477,13 +493,6 @@ function tick(now) {
       if (input.pressed('KeyE')) exitCar();
     }
 
-    traffic.update(dt, {
-      focus: { x: here.x, z: here.z },
-      car: drivingCar,
-      body: mode === 'walk' ? { x: player.position.x, z: player.position.z } : null,
-      peds: crowd,
-    });
-    crowd.update(dt, { car: drivingCar, traffic });
     police.update(dt, {
       player: { x: here.x, z: here.z },
       car: drivingCar,
@@ -502,6 +511,20 @@ function tick(now) {
       wanted: police.stars,
       interact: input.pressed('KeyE'),
     });
+  }
+
+  // Ambient life runs in a staged frame too: a car or a walker only reaches the
+  // screen once update() writes its instance matrix, and a shot of the road is
+  // supposed to show the road working. Staged traffic streams around the point
+  // the camera frames instead of the frozen player pose.
+  if (!paused) {
+    traffic.update(dt, {
+      focus: staged ? stagedFocus : { x: here.x, z: here.z },
+      car: drivingCar,
+      body: !staged && mode === 'walk' ? { x: player.position.x, z: player.position.z } : null,
+      peds: crowd,
+    });
+    crowd.update(dt, { car: drivingCar, traffic });
   }
 
   combat.update(dt, {

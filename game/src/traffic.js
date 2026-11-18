@@ -479,6 +479,17 @@ export class Traffic {
     }
   }
 
+  /** Put the whole fleet around a point, for a staged frame: the road in shot is
+   *  busy instead of holding whatever the opening spawn left there. */
+  reseed(focus, spread = 170) {
+    for (const car of this.cars) {
+      car.alive = true;
+      this._respawn(car, focus, spread);
+      this._paintCar(car);
+    }
+    this._paint();
+  }
+
   /** Cars inside a radius, for reports and for the crowd to dodge. */
   within(x, z, radius) {
     const r2 = radius * radius;
