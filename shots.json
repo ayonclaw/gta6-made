@@ -1,0 +1,6 @@
+[
+  { "name": "1-city.jpg", "query": "?shot=drive&seed=1" },
+  { "name": "2-street.jpg", "query": "?shot=street&seed=1" },
+  { "name": "3-car.jpg", "query": "?shot=corner&seed=1" },
+  { "name": "4-title.jpg", "query": "?shot=title&seed=1" }
+]

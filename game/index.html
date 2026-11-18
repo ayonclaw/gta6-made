@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Palm Havoc — Marisol Bay</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="src/hud.css">
+</head>
+<body>
+  <canvas id="view"></canvas>
+
+  <div id="hud">
+    <div id="area-badge"><span class="dot"></span><span id="area-name">Coral Heights</span></div>
+    <div id="cash-badge"><span class="cash-label">Cash</span><span id="cash-value">$1,240</span></div>
+
+    <div id="hud-strip">
+      <div class="meter">
+        <span class="meter-label">Health</span>
+        <div class="meter-track"><span id="health-fill"></span></div>
+      </div>
+      <div class="strip-divider"></div>
+      <div id="mode-value">On foot</div>
+      <div class="strip-divider"></div>
+      <div id="hint">WASD move &middot; E enter car &middot; Space handbrake</div>
+    </div>
+
+    <div id="minimap-frame">
+      <canvas id="minimap" width="192" height="192"></canvas>
+      <span class="compass">N</span>
+    </div>
+  </div>
+
+  <div id="boot">
+    <div class="boot-card">
+      <p class="eyebrow">Marisol Bay &middot; Chapter One</p>
+      <h1>Palm<br>Havoc</h1>
+      <p class="tagline">Sun, salt and a debt that will not settle itself.</p>
+
+      <div class="boot-row">
+        <button id="start-button" disabled>Laying the boulevards&hellip;</button>
+        <div class="boot-note">Everything you see is built in your browser.<br>No download, no network, no save file yet.</div>
+      </div>
+
+      <ul class="keys">
+        <li><b>W A S D</b> walk, and drive</li>
+        <li><b>Mouse</b> look around</li>
+        <li><b>Shift</b> sprint</li>
+        <li><b>E</b> enter or leave the car</li>
+        <li><b>Space</b> handbrake</li>
+        <li><b>Esc</b> free the mouse</li>
+      </ul>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
