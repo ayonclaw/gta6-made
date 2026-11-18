@@ -1,13 +1,13 @@
-// The heads-up display: the strip along the bottom, the cash and district badge, and the
-// minimap, which is drawn from the same street grid the city itself was built on.
+// The heads-up display: cash, health, the wanted stars, the objective line, subtitles, the
+// minimap drawn from the same street grid the city was built on, and the story cards.
 import { CITY, CITY_HALF, OCEAN, roadCenter } from './config.js';
 
 const DISTRICTS = [
   'Coral Heights', 'Sunset Quay', 'Boulevard Nine', 'Palmera Row',
-  'Saltwind', 'Calle Marina', 'Old Lagoon', 'Neon Parade',
+  'Calle Marina', 'Old Lagoon', 'Neon Parade', 'Casa Alta', 'Pier Nine',
 ];
 
-const MAP_SPAN = 320;   // metres across the minimap
+const MAP_SPAN = 340;   // metres across the minimap
 const MAP_ROAD = 18;    // how wide a street reads on the map
 
 export class Hud {
@@ -19,9 +19,30 @@ export class Hud {
     this.healthFill = document.getElementById('health-fill');
     this.canvas = document.getElementById('minimap');
     this.context = this.canvas.getContext('2d');
-    this.cash = 1240;
+    this.wantedStars = Array.from(document.querySelectorAll('#wanted .star'));
+    this.objective = document.getElementById('objective');
+    this.subtitle = document.getElementById('subtitle');
+    this.subtitleSpeaker = document.getElementById('subtitle-speaker');
+    this.subtitleLine = document.getElementById('subtitle-line');
+    this.toastBox = document.getElementById('toast');
+    this.missionCard = document.getElementById('mission-card');
+    this.missionTitle = document.getElementById('mission-title');
+    this.missionBrief = document.getElementById('mission-brief');
+    this.ammoValue = document.getElementById('ammo-value');
+    this.weaponName = document.getElementById('weapon-name');
+    this.intro = document.getElementById('intro');
+    this.introLine = document.getElementById('intro-line');
+    this.introSpeaker = document.getElementById('intro-speaker');
+    this.introHint = document.getElementById('intro-hint');
+
+    this.cash = 0;
     this.health = 1;
+    this.stars = -1;
     this.district = '';
+    this.subtitleTimer = 0;
+    this.toastTimer = 0;
+    this.missionTimer = 0;
+    this.introQueue = null;
   }
 
   show() {
@@ -34,16 +55,81 @@ export class Hud {
 
   setCash(amount) {
     this.cash = amount;
-    this.cashValue.textContent = `$${amount.toLocaleString('en-US')}`;
+    this.cashValue.textContent = `$${Math.round(amount).toLocaleString('en-US')}`;
   }
 
   setHealth(fraction) {
     this.health = Math.max(0, Math.min(1, fraction));
     this.healthFill.style.width = `${Math.round(this.health * 100)}%`;
+    this.healthFill.classList.toggle('critical', this.health < 0.3);
   }
 
-  /** Called once a frame with the walker, the car and whether the player is driving. */
-  update(state) {
+  setWanted(stars) {
+    if (stars === this.stars) return;
+    this.stars = stars;
+    this.wantedStars.forEach((star, index) => {
+      const lit = index < stars;
+      star.classList.toggle('lit', lit);
+      star.classList.toggle('fresh', lit && index === stars - 1);
+    });
+  }
+
+  setObjective(text) {
+    this.objective.textContent = text;
+    this.objective.classList.toggle('visible', Boolean(text));
+  }
+
+  setAmmo(ammo, reloading) {
+    this.ammoValue.textContent = reloading ? '—' : String(ammo).padStart(2, '0');
+    this.ammoValue.classList.toggle('reloading', Boolean(reloading));
+  }
+
+  say(speaker, text, seconds = 4.5) {
+    this.subtitleSpeaker.textContent = speaker;
+    this.subtitleLine.textContent = text;
+    this.subtitle.classList.add('visible');
+    this.subtitleTimer = seconds;
+  }
+
+  toast(text, seconds = 3.6) {
+    this.toastBox.textContent = text;
+    this.toastBox.classList.add('visible');
+    this.toastTimer = seconds;
+  }
+
+  showMission(title, brief, seconds = 5.2) {
+    this.missionTitle.textContent = title;
+    this.missionBrief.textContent = brief;
+    this.missionCard.classList.add('visible');
+    this.missionTimer = seconds;
+  }
+
+  /** The opening: three cards, clicked through, naming the game and setting up the job. */
+  showIntro(lines, done) {
+    this.introQueue = lines.slice();
+    this.introDone = done;
+    this.intro.classList.add('visible');
+    this.introHint.textContent = 'Click or press Enter';
+    this.advanceIntro();
+  }
+
+  advanceIntro() {
+    const queue = this.introQueue;
+    if (!queue) return;
+    if (!queue.length) {
+      this.intro.classList.remove('visible');
+      this.introQueue = null;
+      const done = this.introDone;
+      this.introDone = null;
+      if (done) done();
+      return;
+    }
+    const [speaker, text] = queue.shift();
+    this.introSpeaker.textContent = speaker;
+    this.introLine.textContent = text;
+  }
+
+  update(dt, state) {
     this.setCash(this.cash);
     const position = state.mode === 'car' ? state.car.position : state.player.position;
     const district = this.districtAt(position.x, position.z);
@@ -57,10 +143,27 @@ export class Hud {
     } else {
       this.modeValue.textContent = 'On foot';
     }
+    if (state.combat) this.setAmmo(state.combat.ammo, state.combat.reloading);
+    this.setWanted(state.stars ?? 0);
+
+    if (this.subtitleTimer > 0) {
+      this.subtitleTimer -= dt;
+      if (this.subtitleTimer <= 0) this.subtitle.classList.remove('visible');
+    }
+    if (this.toastTimer > 0) {
+      this.toastTimer -= dt;
+      if (this.toastTimer <= 0) this.toastBox.classList.remove('visible');
+    }
+    if (this.missionTimer > 0) {
+      this.missionTimer -= dt;
+      if (this.missionTimer <= 0) this.missionCard.classList.remove('visible');
+    }
+
     this.drawMinimap(state);
   }
 
   districtAt(x, z) {
+    if (z < OCEAN.beachStart + 20 && Math.abs(x - roadCenter(3) - 8) < 60) return 'Pier Nine';
     const blockX = Math.min(CITY.cells - 1, Math.max(0, Math.round((x + CITY_HALF) / CITY.pitch - 0.5)));
     const blockZ = Math.min(CITY.cells - 1, Math.max(0, Math.round((z + CITY_HALF) / CITY.pitch - 0.5)));
     return DISTRICTS[(blockX * CITY.cells + blockZ) % DISTRICTS.length];
@@ -104,11 +207,35 @@ export class Hud {
       context.fillRect(toX(line) - road / 2, 0, road, size);
     }
 
-    if (state.mode !== 'car') {
-      context.fillStyle = '#ffd89b';
+    // Walkers: a faint scatter of dots, enough to read "people" at a glance.
+    if (state.pedestrians) {
+      context.fillStyle = 'rgba(246,241,230,0.5)';
+      for (const person of state.pedestrians.people) {
+        if (person.dead) continue;
+        const x = toX(person.x);
+        const y = toY(person.z);
+        context.fillRect(x - 1, y - 1, 2, 2);
+      }
+    }
+
+    // Cruisers flash red.
+    if (state.police) {
+      const pulse = Math.sin(performance.now() * 0.012) > 0 ? '#ff4b3a' : '#5a8cff';
+      context.fillStyle = pulse;
+      for (const unit of state.police.units) {
+        context.beginPath();
+        context.arc(toX(unit.car.position.x), toY(unit.car.position.z), 4, 0, Math.PI * 2);
+        context.fill();
+      }
+    }
+
+    // The objective ring.
+    if (state.waypoint) {
+      context.strokeStyle = '#64e8ff';
+      context.lineWidth = 2;
       context.beginPath();
-      context.arc(toX(state.car.position.x), toY(state.car.position.z), 4.5, 0, Math.PI * 2);
-      context.fill();
+      context.arc(toX(state.waypoint.x), toY(state.waypoint.z), 6, 0, Math.PI * 2);
+      context.stroke();
     }
 
     context.save();

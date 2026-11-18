@@ -4,7 +4,7 @@
 const HELD = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-  'ShiftLeft', 'ShiftRight', 'Space', 'KeyE', 'KeyH',
+  'ShiftLeft', 'ShiftRight', 'Space', 'KeyE', 'KeyF', 'KeyR', 'KeyH',
 ]);
 
 export class Input {
@@ -15,6 +15,7 @@ export class Input {
     this.lookX = 0;
     this.lookY = 0;
     this.locked = false;
+    this.buttons = 0;
 
     window.addEventListener('keydown', (event) => {
       if (HELD.has(event.code)) event.preventDefault();
@@ -26,7 +27,15 @@ export class Input {
     });
     window.addEventListener('blur', () => {
       this.keys.clear();
+      this.buttons = 0;
     });
+    canvas.addEventListener('mousedown', (event) => {
+      if (event.button === 0) this.buttons += 1;
+    });
+    window.addEventListener('mouseup', (event) => {
+      if (event.button === 0) this.buttons = 0;
+    });
+    canvas.addEventListener('contextmenu', (event) => event.preventDefault());
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.canvas;
     });
@@ -35,6 +44,11 @@ export class Input {
       this.lookX += event.movementX;
       this.lookY += event.movementY;
     });
+  }
+
+  /** Left button held: the pistol fires on a timer while this is true. */
+  get mouseDown() {
+    return this.buttons > 0;
   }
 
   /** Ask the browser for the mouse; resolves once the pointer is locked or the wait is over. */

@@ -31,10 +31,13 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+class Server(socketserver.TCPServer):
+    allow_reuse_address = True
+
+
 def serve(port):
     handler = functools.partial(Quiet, directory=str(GAME))
-    httpd = socketserver.TCPServer(("127.0.0.1", port), handler)
-    httpd.allow_reuse_address = True
+    httpd = Server(("127.0.0.1", port), handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     return httpd
@@ -54,6 +57,7 @@ def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=CHROME, args=ARGS)
         page = browser.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=1)
+        page.set_default_timeout(120000)
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)

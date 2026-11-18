@@ -1,18 +1,28 @@
-// Marisol Bay itself: the asphalt, the pavements, the lane paint, the beach and the towers.
-// buildCity() returns the group plus the collision boxes and spawn the rest of the game uses.
+// Marisol Bay itself: the asphalt, the pavements, the lane paint, the beach, the towers and the
+// landmarks. buildCity() returns the group plus the collision boxes and spawn the rest of the
+// game uses.
 import * as THREE from '../vendor/three.module.min.js';
 import {
   CITY, CITY_HALF, CITY_SPAN, BLOCK_SIZE, LOT_SIZE, OCEAN, COLORS, SUN,
   blockCenter, roadCenter,
 } from './config.js';
 import {
-  createAsphalt, createPavement, createSand, createFacadeTextures, createStorefrontTextures,
+  createAsphalt, createPavement, createSand, createWater, createFacadeTextures,
+  createStorefrontTextures, createSignTexture,
 } from './textures.js';
-import { range, chance } from './rng.js';
-import { plantPalms, lightStreets, dressRoofs, parkCars } from './props.js';
+import { range, chance, pick } from './rng.js';
+import { plantPalms, lightStreets, dressRoofs, parkCars, dressCorners } from './props.js';
+import { buildLandmarks } from './landmarks.js';
 
-/** Height of the ground at a point: the pavement of a block, or the road between blocks. */
+/** Raised surfaces the walker can stand on: pushed to by the pier and read by groundHeight. */
+export const PLATFORMS = [];
+
+/** Height of the ground at a point: a pier deck, a pavement, or the road between blocks. */
 export function groundHeight(x, z) {
+  for (let index = 0; index < PLATFORMS.length; index += 1) {
+    const platform = PLATFORMS[index];
+    if (x > platform.minX && x < platform.maxX && z > platform.minZ && z < platform.maxZ) return platform.y;
+  }
   const blockX = Math.round((x + CITY_HALF) / CITY.pitch - 0.5);
   const blockZ = Math.round((z + CITY_HALF) / CITY.pitch - 0.5);
   if (blockX < 0 || blockZ < 0 || blockX >= CITY.cells || blockZ >= CITY.cells) return 0;
@@ -85,7 +95,7 @@ function buildBay(parent, surfaces) {
 
   const water = new THREE.Mesh(
     new THREE.PlaneGeometry(3000, 1500, 1, 1),
-    new THREE.MeshStandardMaterial({ color: COLORS.water, roughness: 0.14, metalness: 0.5 }),
+    new THREE.MeshStandardMaterial({ map: surfaces.water, roughness: 0.12, metalness: 0.55 }),
   );
   water.rotation.x = -Math.PI / 2;
   water.position.set(0, OCEAN.level, OCEAN.beachEnd - 750);
@@ -99,15 +109,17 @@ function buildBay(parent, surfaces) {
   foam.position.set(0, 0.02, OCEAN.beachEnd + 3);
   parent.add(foam);
 
-  // A low sea wall separates the last row of blocks from the sand.
-  const wall = new THREE.Mesh(
-    new THREE.BoxGeometry(2400, 1.1, 3),
-    new THREE.MeshStandardMaterial({ color: 0xe6ddca, roughness: 0.9 }),
-  );
-  wall.position.set(0, 0.55, OCEAN.beachStart + 1.5);
-  wall.castShadow = true;
-  wall.receiveShadow = true;
-  parent.add(wall);
+  // A low sea wall separates the last row of blocks from the sand, with a gap at the pier.
+  const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xe6ddca, roughness: 0.9 });
+  for (const segment of [[-1200, 1200 + (roadCenter(3) - 12)], [roadCenter(3) + 26, 1200]]) {
+    const width = segment[1] - segment[0];
+    if (width <= 0) continue;
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(width, 1.1, 3), wallMaterial);
+    wall.position.set((segment[0] + segment[1]) / 2, 0.55, OCEAN.beachStart + 1.5);
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    parent.add(wall);
+  }
 }
 
 /** Lane dashes down the middle of every street, and crosswalks at every crossing. */
@@ -171,7 +183,23 @@ function buildStreets(parent) {
   parent.add(stripeMesh);
 }
 
-function buildBlocks(parent, random, surfaces, colliders, buildings) {
+/** Which family suits a building of this height: glass and deco go up, brick and stone stay low. */
+function pickVariant(random, surfaces, height) {
+  const tall = height > 44;
+  const low = height < 20;
+  const wanted = tall
+    ? (chance(random, 0.55) ? 'glass' : 'deco')
+    : low
+      ? pick(random, ['brick', 'brick', 'stone', 'deco'])
+      : pick(random, ['deco', 'deco', 'stone', 'glass', 'brick']);
+  const matches = [];
+  surfaces.facades.forEach((entry, index) => {
+    if (entry.family === wanted) matches.push(index);
+  });
+  return matches.length ? pick(random, matches) : 0;
+}
+
+function buildBlocks(parent, random, surfaces, colliders, buildings, reserved, staff) {
   const pavementMaterial = new THREE.MeshStandardMaterial({ map: surfaces.pavement, roughness: 0.9 });
 
   for (let blockX = 0; blockX < CITY.cells; blockX += 1) {
@@ -193,14 +221,21 @@ function buildBlocks(parent, random, surfaces, colliders, buildings) {
 
       for (let cornerX = 0; cornerX < 2; cornerX += 1) {
         for (let cornerZ = 0; cornerZ < 2; cornerZ += 1) {
-          if (chance(random, 0.14)) continue;
+          if (chance(random, 0.12)) continue;
           const plotX = centreX + (cornerX === 0 ? -plot / 2 : plot / 2);
           const plotZ = centreZ + (cornerZ === 0 ? -plot / 2 : plot / 2);
           const width = range(random, 17, plot - CITY.lotInset * 2);
           const depth = range(random, 17, plot - CITY.lotInset * 2);
-          const height = Math.round(range(random, 9, 21) + core * range(random, 14, 52));
+          const height = Math.round(range(random, 8, 20) + core * range(random, 12, 58) + (random() < 0.08 ? 26 : 0));
           const x = plotX + range(random, -1.6, 1.6);
           const z = plotZ + range(random, -1.6, 1.6);
+          const footprint = { minX: x - width / 2 - 2, maxX: x + width / 2 + 2, minZ: z - depth / 2 - 2, maxZ: z + depth / 2 + 2 };
+          const clashes = [...reserved, ...staff].some((area) => !(
+            footprint.maxX < area.minX || footprint.minX > area.maxX
+            || footprint.maxZ < area.minZ || footprint.minZ > area.maxZ
+          ));
+          if (clashes) continue;
+
           addBuilding(parent, random, surfaces, buildings, { x, z, width, depth, height, blockX, blockZ });
           colliders.push({
             minX: x - width / 2 - 0.4,
@@ -220,7 +255,7 @@ function addTower(parent, facade, x, z, width, depth, height, baseY) {
   texture.repeat.set(Math.max(1, Math.round(width / 8)), Math.max(1, Math.round(height / 9)));
   const tower = new THREE.Mesh(
     new THREE.BoxGeometry(width, height, depth),
-    new THREE.MeshStandardMaterial({ map: texture, roughness: 0.72, metalness: 0.06 }),
+    new THREE.MeshStandardMaterial({ map: texture, roughness: facade.family === 'glass' ? 0.28 : 0.72, metalness: facade.family === 'glass' ? 0.5 : 0.06 }),
   );
   tower.position.set(x, baseY + height / 2, z);
   tower.castShadow = true;
@@ -229,45 +264,53 @@ function addTower(parent, facade, x, z, width, depth, height, baseY) {
   return tower;
 }
 
+const ROOF_SIGNS = ['MARISOL', 'BAY HOTEL', 'DEL SOL', 'CASA NORTE'];
+
 function addBuilding(parent, random, surfaces, buildings, spec) {
   const { x, z, width, depth, height } = spec;
-  const variant = Math.floor(random() * surfaces.facades.length);
+  const variant = pickVariant(random, surfaces, height);
   const facade = surfaces.facades[variant];
-  const storefront = surfaces.storefronts[variant];
   const base = CITY.curbHeight;
-  const podiumHeight = Math.min(4.4, Math.max(3.2, height * 0.28));
+  const podiumHeight = Math.min(4.6, Math.max(3.2, height * 0.26));
   const towerHeight = height - podiumHeight;
 
-  const storeTexture = storefront.clone();
-  storeTexture.needsUpdate = true;
-  storeTexture.repeat.set(Math.max(1, Math.round(width / 12)), 1);
-  const podium = new THREE.Mesh(
-    new THREE.BoxGeometry(width + 0.9, podiumHeight, depth + 0.9),
-    new THREE.MeshStandardMaterial({ map: storeTexture, roughness: 0.45, metalness: 0.25 }),
-  );
-  podium.position.set(x, base + podiumHeight / 2, z);
-  podium.castShadow = true;
-  podium.receiveShadow = true;
-  parent.add(podium);
+  // Ground floor: a shop with a named fascia, or a plain stone base for the towers.
+  if (height < 42 || chance(random, 0.55)) {
+    const shop = chance(random, 0.7)
+      ? pick(random, surfaces.storefronts)
+      : surfaces.storefronts[variant * 4 % surfaces.storefronts.length];
+    const storeTexture = shop.map.clone();
+    storeTexture.needsUpdate = true;
+    storeTexture.repeat.set(Math.max(1, Math.round(width / 12)), 1);
+    const podium = new THREE.Mesh(
+      new THREE.BoxGeometry(width + 0.9, podiumHeight, depth + 0.9),
+      new THREE.MeshStandardMaterial({ map: storeTexture, roughness: 0.45, metalness: 0.22 }),
+    );
+    podium.position.set(x, base + podiumHeight / 2, z);
+    podium.castShadow = true;
+    podium.receiveShadow = true;
+    parent.add(podium);
 
-  const awning = new THREE.Mesh(
-    new THREE.BoxGeometry(width + 1.7, 0.3, depth + 1.7),
-    new THREE.MeshStandardMaterial({ color: new THREE.Color(facade.facade.accent), roughness: 0.85 }),
-  );
-  awning.position.set(x, base + podiumHeight + 0.15, z);
-  awning.castShadow = true;
-  awning.receiveShadow = true;
-  parent.add(awning);
+    const awning = new THREE.Mesh(
+      new THREE.BoxGeometry(width + 1.7, 0.3, depth + 1.7),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(shop.accent), roughness: 0.85 }),
+    );
+    awning.position.set(x, base + podiumHeight + 0.15, z);
+    awning.castShadow = true;
+    awning.receiveShadow = true;
+    parent.add(awning);
+    buildings.push({ x, z, width, depth, height: podiumHeight, top: base + podiumHeight, shop: shop.name });
+  }
 
-  const stepped = height > 32 && random() < 0.7;
+  const stepped = height > 30 && random() < 0.72;
   let roofWidth = width;
   let roofDepth = depth;
   if (stepped) {
-    const lower = towerHeight * 0.6;
+    const lower = towerHeight * 0.62;
     const upper = towerHeight - lower;
     addTower(parent, facade, x, z, width, depth, lower, base + podiumHeight);
-    roofWidth = width * 0.74;
-    roofDepth = depth * 0.74;
+    roofWidth = width * 0.72;
+    roofDepth = depth * 0.72;
     addTower(parent, facade, x, z, roofWidth, roofDepth, upper, base + podiumHeight + lower);
   } else {
     addTower(parent, facade, x, z, width, depth, towerHeight, base + podiumHeight);
@@ -275,22 +318,36 @@ function addBuilding(parent, random, surfaces, buildings, spec) {
 
   const roof = new THREE.Mesh(
     new THREE.BoxGeometry(roofWidth + 0.7, 0.45, roofDepth + 0.7),
-    new THREE.MeshStandardMaterial({ color: 0xd7cebd, roughness: 0.95 }),
+    new THREE.MeshStandardMaterial({ color: facade.family === 'brick' ? 0x9a6a4c : 0xd7cebd, roughness: 0.95 }),
   );
   roof.position.set(x, base + height - 0.05, z);
   roof.castShadow = true;
   roof.receiveShadow = true;
   parent.add(roof);
 
+  // A few rooftops carry a board with the building's name on it: the skyline gets words.
+  if (height > 34 && chance(random, 0.3)) {
+    const texture = createSignTexture(pick(random, ROOF_SIGNS), {
+      width: 512, height: 128, size: 60, background: '#1b2a30', border: facade.facade.accent,
+    });
+    const board = new THREE.Mesh(
+      new THREE.PlaneGeometry(roofWidth * 0.9, roofWidth * 0.22),
+      new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide, toneMapped: false }),
+    );
+    board.position.set(x, base + height + roofWidth * 0.16, z + roofDepth / 2 + 0.2);
+    parent.add(board);
+  }
+
   buildings.push({
     x, z, width, depth, roofWidth, roofDepth, height,
     top: base + height,
     accent: facade.facade.accent,
+    family: facade.family,
   });
 }
 
 
-/** Put the whole bay together and hand back what the player, the car and the HUD need. */
+/** Put the whole bay together and hand back what the player, the cars and the HUD need. */
 export function buildCity(scene, random) {
   const group = new THREE.Group();
   group.name = 'MarisolBay';
@@ -298,18 +355,24 @@ export function buildCity(scene, random) {
     asphalt: createAsphalt(random),
     pavement: createPavement(random),
     sand: createSand(random),
+    water: createWater(random),
     facades: createFacadeTextures(random),
     storefronts: createStorefrontTextures(random),
   };
   const colliders = [];
   const buildings = [];
+  PLATFORMS.length = 0;
 
   buildGround(group, surfaces);
   buildStreets(group);
-  buildBlocks(group, random, surfaces, colliders, buildings);
-  parkCars(group, random, colliders);
   buildBay(group, surfaces);
+
+  // Landmarks reserve their lots before the procedural blocks fill in around them.
+  const landmarks = buildLandmarks(group, random, colliders, PLATFORMS);
+  buildBlocks(group, random, surfaces, colliders, buildings, landmarks.reserved, []);
+  parkCars(group, random, colliders);
   plantPalms(group, random, buildings);
+  dressCorners(group, random, colliders);
   lightStreets(group);
   dressRoofs(group, random, buildings);
 
@@ -320,6 +383,7 @@ export function buildCity(scene, random) {
     group,
     colliders,
     buildings,
+    landmarks,
     spawn,
     sun: new THREE.Vector3(SUN.x, SUN.y, SUN.z).normalize(),
   };

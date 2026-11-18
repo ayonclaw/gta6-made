@@ -1,6 +1,6 @@
 [
-  { "name": "1-city.jpg", "query": "?shot=drive&seed=1" },
+  { "name": "1-vista.jpg", "query": "?shot=vista&seed=1" },
   { "name": "2-street.jpg", "query": "?shot=street&seed=1" },
-  { "name": "3-car.jpg", "query": "?shot=corner&seed=1" },
-  { "name": "4-title.jpg", "query": "?shot=title&seed=1" }
+  { "name": "3-chase.jpg", "query": "?shot=chase&seed=1" },
+  { "name": "4-mission.jpg", "query": "?shot=mission&seed=1" }
 ]

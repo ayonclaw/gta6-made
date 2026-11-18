@@ -108,11 +108,18 @@ export function plantPalms(parent, random, buildings) {
 export function parkCars(parent, random, colliders) {
   const PAINTS = [0xe8e4d8, 0x2f4a63, 0xc9382f, 0x1f6b5e, 0xd7a24a, 0x8e93a0, 0x5b3a54, 0xf0f0ea];
   const spots = [];
+  const nearJunction = (value) => {
+    for (let index = 0; index <= CITY.cells; index += 1) {
+      if (Math.abs(value - roadCenter(index)) < CITY.roadWidth / 2 + 8) return true;
+    }
+    return false;
+  };
 
   for (let index = 0; index <= CITY.cells; index += 1) {
     const centre = roadCenter(index);
     for (let along = -CITY_HALF + 22; along < CITY_HALF - 22; along += 24) {
       if (random() < 0.38) continue;
+      if (nearJunction(along)) continue;
       const side = random() < 0.5 ? -1 : 1;
       const offset = side * (CITY.roadWidth / 2 - 2.3);
       spots.push({
@@ -216,6 +223,63 @@ export function lightStreets(parent) {
   parent.add(poleMesh);
   parent.add(armMesh);
   parent.add(lampMesh);
+}
+
+/** Benches, planters, news kiosks and a bus shelter at the corners, so the pavements are lived in. */
+export function dressCorners(parent, random, colliders) {
+  const benchSeat = [];
+  const benchBack = [];
+  const planters = [];
+  const shrubs = [];
+  const kiosks = [];
+  const shelterGlass = [];
+  const shelterRoof = [];
+
+  const inset = BLOCK_SIZE / 2 - 2.2;
+  for (let blockX = 0; blockX < CITY.cells; blockX += 1) {
+    for (let blockZ = 0; blockZ < CITY.cells; blockZ += 1) {
+      const centreX = blockCenter(blockX);
+      const centreZ = blockCenter(blockZ);
+      for (const cornerX of [-1, 1]) {
+        for (const cornerZ of [-1, 1]) {
+          const x = centreX + cornerX * (inset - 3.4);
+          const z = centreZ + cornerZ * (inset - 3.4);
+          const turn = cornerX > 0 ? Math.PI / 2 : -Math.PI / 2;
+          const roll = random();
+          if (roll < 0.42) {
+            benchSeat.push({ x, y: 0.62, z, rotationY: turn });
+            benchBack.push({ x: x + cornerX * 0.32, y: 0.98, z, rotationY: turn });
+          } else if (roll < 0.75) {
+            planters.push({ x, y: 0.42, z });
+            shrubs.push({ x, y: 1.05, z, scaleY: range(random, 0.8, 1.3) });
+          } else {
+            kiosks.push({ x, y: 0.85, z, rotationY: turn });
+          }
+        }
+      }
+      // A bus shelter halfway along the north kerb of every block.
+      const shelterX = centreX + range(random, -12, 12);
+      const shelterZ = centreZ - BLOCK_SIZE / 2 + 1.6;
+      shelterRoof.push({ x: shelterX, y: 2.65, z: shelterZ });
+      shelterGlass.push({ x: shelterX, y: 1.35, z: shelterZ - 0.55, rotationY: 0 });
+    }
+  }
+
+  parent.add(makeInstanced(new THREE.BoxGeometry(1.9, 0.12, 0.62), new THREE.MeshStandardMaterial({ color: 0x8a6a45, roughness: 0.9 }), benchSeat));
+  parent.add(makeInstanced(new THREE.BoxGeometry(1.9, 0.52, 0.1), new THREE.MeshStandardMaterial({ color: 0x8a6a45, roughness: 0.9 }), benchBack));
+  parent.add(makeInstanced(new THREE.CylinderGeometry(0.72, 0.62, 0.84, 8), new THREE.MeshStandardMaterial({ color: 0xb0a89a, roughness: 0.95 }), planters));
+  parent.add(makeInstanced(new THREE.SphereGeometry(0.82, 8, 6), new THREE.MeshStandardMaterial({ color: 0x4a7a3e, roughness: 1 }), shrubs));
+  parent.add(makeInstanced(new THREE.BoxGeometry(1.5, 1.7, 1.1), new THREE.MeshStandardMaterial({ color: 0x2f5b6b, roughness: 0.6, metalness: 0.3 }), kiosks));
+  parent.add(makeInstanced(new THREE.BoxGeometry(3.4, 0.16, 1.6), new THREE.MeshStandardMaterial({ color: 0x3a4a52, roughness: 0.5, metalness: 0.4 }), shelterRoof));
+  parent.add(makeInstanced(
+    new THREE.BoxGeometry(3.1, 1.9, 0.08),
+    new THREE.MeshStandardMaterial({ color: 0x9fc6cf, roughness: 0.1, metalness: 0.2, transparent: true, opacity: 0.42 }),
+    shelterGlass,
+  ));
+
+  for (const kiosk of kiosks) {
+    colliders.push({ minX: kiosk.x - 0.9, maxX: kiosk.x + 0.9, minZ: kiosk.z - 0.7, maxZ: kiosk.z + 0.7 });
+  }
 }
 
 /** Water tanks, air units and aerials on the roofs, so the skyline is not bare boxes. */

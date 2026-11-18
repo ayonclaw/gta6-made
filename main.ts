@@ -4,10 +4,12 @@
 // this program hands it in. It copies game/ and screenshots/ from beside this file to /output and
 // writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
 //
-// Palm Havoc: an open-world crime game in Marisol Bay. Stage one is the city itself — a grid of
-// blocks with streets, pavements, palms, towers and a bay — a walker you steer with WASD and the
-// mouse, and one car to take at the kerb with E. Traffic, pedestrians, police and missions come
-// next; the world, the camera rigs and the HUD are built to carry them.
+// Palm Havoc: an open-world crime game in Marisol Bay. The city is a grid of blocks with streets,
+// pavements, palms, towers, a pier and a bay; 70 cars work the lane graph, 132 walkers pace the
+// pavements, and you can steal any car on the road. Crimes raise a five-star wanted level and
+// cruisers answer it, there is a pistol with hitscan and health, and three chained jobs with
+// objectives, dialogue and payouts. Money, mission progress and the wanted level save to
+// localStorage; every sound is synthesised with WebAudio, so the entry ships no image or audio file.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
