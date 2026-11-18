@@ -1,45 +1,70 @@
-// Deterministic pseudo-randomness. One seed builds the whole of Marisol Bay, so every load and
-// every screenshot of the same seed is the same city.
+/* A tiny seeded generator so the same seed always builds the same Salmora.
+   mulberry32 keeps it to a handful of integer ops and is plenty for city lots. */
 
-/** Turn a seed number or string into a 32-bit unsigned seed. */
-export function hashSeed(value) {
-  const text = String(value);
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
+export class Rng {
+  constructor(seed) {
+    this.seed = (seed >>> 0) || 1;
+    this.state = this.seed;
   }
-  return hash >>> 0;
+
+  /** Float in [0, 1). */
+  next() {
+    this.state = (this.state + 0x6d2b79f5) >>> 0;
+    let t = this.state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  /** Float in [a, b). */
+  range(a, b) {
+    return a + (b - a) * this.next();
+  }
+
+  /** Whole number in [a, b]. */
+  int(a, b) {
+    return Math.floor(this.range(a, b + 1));
+  }
+
+  /** True with the given probability. */
+  chance(p) {
+    return this.next() < p;
+  }
+
+  /** Uniform pick from an array. */
+  pick(list) {
+    return list[Math.floor(this.next() * list.length) % list.length];
+  }
+
+  /** A shuffled copy — the input is left alone. */
+  shuffle(list) {
+    const out = list.slice();
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(this.next() * (i + 1));
+      const swap = out[i];
+      out[i] = out[j];
+      out[j] = swap;
+    }
+    return out;
+  }
+
+  /** Signed value in [-m, m), handy for jitter. */
+  jitter(m) {
+    return this.range(-m, m);
+  }
+
+  /** A second stream that will not disturb this one's position. */
+  fork(salt) {
+    return new Rng((this.seed ^ Math.imul(salt + 1, 0x9e3779b1)) >>> 0);
+  }
 }
 
-/** Mulberry32: small, fast and good enough for city blocks and window lights. */
-export function makeRandom(seed) {
-  let state = seed >>> 0;
-  return function random() {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let value = state;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** A float in [min, max). */
-export function range(random, min, max) {
-  return min + (max - min) * random();
-}
-
-/** One element of `list`. */
-export function pick(random, list) {
-  return list[Math.min(list.length - 1, Math.floor(random() * list.length))];
-}
-
-/** True with probability `probability`. */
-export function chance(random, probability) {
-  return random() < probability;
-}
-
-/** A whole number in [min, max]. */
-export function int(random, min, max) {
-  return min + Math.floor(random() * (max - min + 1));
+/** Numeric hash of a string, for turning a seed query into a number. */
+export function hashSeed(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }

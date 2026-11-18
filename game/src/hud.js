@@ -1,308 +1,292 @@
-// The heads-up display: cash, health, the wanted stars, the objective line, subtitles, the
-// minimap drawn from the same street grid the city was built on, and the story cards.
-import { CITY, CITY_HALF, OCEAN, roadCenter } from './config.js';
+/* HUD construction and painting. Nothing here touches the scene graph; the
+   main loop hands it numbers and it hands back a strip, a map and prompts. */
 
-const DISTRICTS = [
-  'Coral Heights', 'Sunset Quay', 'Boulevard Nine', 'Palmera Row',
-  'Calle Marina', 'Old Lagoon', 'Neon Parade', 'Casa Alta', 'Pier Nine',
+import { TAGLINE, TITLE, districtAt } from './config.js';
+
+function node(tag, cls, parent) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (parent) parent.appendChild(el);
+  return el;
+}
+
+const CONTROLS = [
+  ['W A S D', 'walk / drive'],
+  ['Shift', 'run'],
+  ['Space', 'jump'],
+  ['Mouse', 'look around'],
+  ['E', 'enter / leave car'],
+  ['Wheel', 'camera zoom'],
+  ['Esc', 'pause'],
 ];
 
-const MAP_SPAN = 340;   // metres across the minimap
-const MAP_ROAD = 18;    // how wide a street reads on the map
-
 export class Hud {
-  constructor() {
-    this.root = document.getElementById('hud');
-    this.areaName = document.getElementById('area-name');
-    this.cashValue = document.getElementById('cash-value');
-    this.modeValue = document.getElementById('mode-value');
-    this.healthFill = document.getElementById('health-fill');
-    this.canvas = document.getElementById('minimap');
-    this.context = this.canvas.getContext('2d');
-    this.wantedStars = Array.from(document.querySelectorAll('#wanted .star'));
-    this.objective = document.getElementById('objective');
-    this.subtitle = document.getElementById('subtitle');
-    this.subtitleSpeaker = document.getElementById('subtitle-speaker');
-    this.subtitleLine = document.getElementById('subtitle-line');
-    this.toastBox = document.getElementById('toast');
-    this.missionCard = document.getElementById('mission-card');
-    this.missionTitle = document.getElementById('mission-title');
-    this.missionBrief = document.getElementById('mission-brief');
-    this.ammoValue = document.getElementById('ammo-value');
-    this.weaponName = document.getElementById('weapon-name');
-    this.intro = document.getElementById('intro');
-    this.introLine = document.getElementById('intro-line');
-    this.introSpeaker = document.getElementById('intro-speaker');
-    this.introHint = document.getElementById('intro-hint');
-    this.promptBox = document.getElementById('prompt');
-    this.promptKey = document.getElementById('prompt-key');
-    this.promptText = document.getElementById('prompt-text');
-    this.pauseCard = document.getElementById('pause');
-
-    this.cash = 0;
-    this.health = 1;
-    this.stars = -1;
-    this.district = '';
-    this.subtitleTimer = 0;
+  constructor(root) {
+    this.root = root;
+    this.promptTimer = 0;
     this.toastTimer = 0;
-    this.missionTimer = 0;
-    this.introQueue = null;
-    this.promptTimer = 0;
-    this.promptLine = '';
-    this.promptsEnabled = true;
+    this.mapTimer = 0;
+    this.promptSig = '';
+    this.mapDirty = true;
+    this.onResume = null;
+    this._build();
   }
 
-  /** A prompt stays up for `seconds`, then fades: the HUD says nothing it does not have to. */
-  prompt(key, text, seconds = 2.4) {
-    if (!this.promptsEnabled) return;
-    if (this.promptLine === text && this.promptTimer > 0) return;
-    this.promptKey.textContent = key;
-    this.promptText.textContent = text;
-    this.promptLine = text;
-    this.promptBox.classList.add('visible');
-    this.promptTimer = seconds;
-  }
+  _build() {
+    const r = this.root;
 
-  dismissPrompt() {
-    this.promptTimer = 0;
-    this.promptBox.classList.remove('visible');
-  }
+    this.districtChip = node('div', 'district', r);
+    this.districtName = node('span', '', this.districtChip);
+    this.districtName.textContent = 'SALT FLATS';
 
-  get promptVisible() {
-    return this.promptBox.classList.contains('visible');
-  }
+    const brand = node('div', 'brand', r);
+    brand.textContent = 'Salmora';
 
-  setPause(open) {
-    this.pauseCard.classList.toggle('visible', open);
-  }
+    const strip = node('div', 'strip', r);
 
-  show() {
-    this.root.classList.add('visible');
-  }
+    const vitals = node('div', 'cell vitals', strip);
+    node('div', 'label', vitals).textContent = 'Vitals';
+    this.bar = node('div', 'bar', vitals);
+    this.barFill = node('i', '', this.bar);
+    this.healthValue = node('div', 'value', vitals);
+    this.healthValue.style.fontSize = '11px';
+    this.healthValue.style.marginTop = '7px';
+    this.healthValue.style.letterSpacing = '0.18em';
+    this.healthValue.textContent = '100';
 
-  hide() {
-    this.root.classList.remove('visible');
-  }
+    const cash = node('div', 'cell', strip);
+    node('div', 'label', cash).textContent = 'Funds';
+    this.cashValue = node('div', 'value cash', cash);
+    this.cashValue.textContent = '$240';
 
-  setCash(amount) {
-    this.cash = amount;
-    this.cashValue.textContent = `$${Math.round(amount).toLocaleString('en-US')}`;
-  }
+    this.speedCell = node('div', 'cell away', strip);
+    this.speedCell.id = 'speedCell';
+    node('div', 'label', this.speedCell).textContent = 'Speed';
+    this.speedValue = node('div', 'value', this.speedCell);
+    this.speedValue.innerHTML = '0<small>KM/H</small>';
 
-  setHealth(fraction) {
-    this.health = Math.max(0, Math.min(1, fraction));
-    this.healthFill.style.width = `${Math.round(this.health * 100)}%`;
-    this.healthFill.classList.toggle('critical', this.health < 0.3);
-  }
+    // minimap
+    const map = node('div', 'map', r);
+    this.mapCanvas = node('canvas', '', map);
+    this.mapCanvas.width = 320;
+    this.mapCanvas.height = 320;
+    this.mapCtx = this.mapCanvas.getContext('2d');
+    const north = node('div', 'north', map);
+    north.textContent = 'N';
+    const mapLabel = node('div', 'pin-label', map);
+    mapLabel.textContent = 'Salmora Sound';
 
-  setWanted(stars) {
-    if (stars === this.stars) return;
-    this.stars = stars;
-    this.wantedStars.forEach((star, index) => {
-      const lit = index < stars;
-      star.classList.toggle('lit', lit);
-      star.classList.toggle('fresh', lit && index === stars - 1);
+    // prompt + toast
+    this.promptEl = node('div', 'prompt', r);
+    this.promptKbd = node('kbd', '', this.promptEl);
+    this.promptText = node('span', '', this.promptEl);
+    this.promptKbd.textContent = 'E';
+    this.promptText.textContent = 'Drive the Corvina';
+
+    this.toast = node('div', 'toast', r);
+
+    // pause card
+    this.pause = node('div', 'pause', r);
+    const card = node('div', 'card', this.pause);
+    const h2 = node('h2', '', card);
+    h2.textContent = TITLE;
+    const sub = node('p', 'sub', card);
+    sub.textContent = TAGLINE + ' · paused';
+    const list = node('ul', 'keys', card);
+    for (const [key, action] of CONTROLS) {
+      const li = node('li', '', list);
+      const b = node('b', '', li);
+      b.textContent = key;
+      node('span', '', li).textContent = action;
+    }
+    this.resumeButton = node('button', '', card);
+    this.resumeButton.textContent = 'Resume';
+    this.resumeButton.addEventListener('click', () => {
+      if (this.onResume) this.onResume();
     });
+
+    // title card, only used by the title screenshot pose
+    this.titleCard = node('div', 'title-card', r);
+    const h1 = node('h1', '', this.titleCard);
+    h1.textContent = TITLE;
+    node('div', 'rule', this.titleCard);
+    const tag = node('p', '', this.titleCard);
+    tag.textContent = TAGLINE;
   }
 
-  setObjective(text) {
-    this.objective.textContent = text;
-    this.objective.classList.toggle('visible', Boolean(text));
+  setHealth(value) {
+    const v = Math.max(0, Math.min(100, value));
+    this.barFill.style.width = `${v}%`;
+    this.bar.classList.toggle('low', v < 35);
+    this.healthValue.textContent = String(Math.round(v));
   }
 
-  setAmmo(ammo, reloading) {
-    this.ammoValue.textContent = reloading ? '—' : String(ammo).padStart(2, '0');
-    this.ammoValue.classList.toggle('reloading', Boolean(reloading));
+  setCash(value) {
+    this.cashValue.textContent = `$${Math.round(value)}`;
   }
 
-  say(speaker, text, seconds = 4.5) {
-    this.subtitleSpeaker.textContent = speaker;
-    this.subtitleLine.textContent = text;
-    this.subtitle.classList.add('visible');
-    this.subtitleTimer = seconds;
+  setDistrict(name) {
+    if (this.districtName.textContent === name) return;
+    this.districtName.textContent = name;
   }
 
-  toast(text, seconds = 3.6) {
-    this.toastBox.textContent = text;
-    this.toastBox.classList.add('visible');
-    this.toastTimer = seconds;
-  }
-
-  showMission(title, brief, seconds = 5.2) {
-    this.missionTitle.textContent = title;
-    this.missionBrief.textContent = brief;
-    this.missionCard.classList.add('visible');
-    this.missionTimer = seconds;
-  }
-
-  /** The opening: three cards, clicked through, naming the game and setting up the job. */
-  showIntro(lines, done) {
-    this.introQueue = lines.slice();
-    this.introDone = done;
-    this.intro.classList.add('visible');
-    this.introHint.textContent = 'Click or press Enter';
-    this.advanceIntro();
-  }
-
-  advanceIntro() {
-    const queue = this.introQueue;
-    if (!queue) return;
-    if (!queue.length) {
-      this.intro.classList.remove('visible');
-      this.introQueue = null;
-      const done = this.introDone;
-      this.introDone = null;
-      if (done) done();
-      return;
+  setSpeed(kmh) {
+    const driving = kmh !== null && kmh !== undefined;
+    this.speedCell.classList.toggle('away', !driving);
+    if (!driving) return;
+    const v = Math.round(kmh);
+    if (this.speedValue.dataset.v !== String(v)) {
+      this.speedValue.dataset.v = String(v);
+      this.speedValue.innerHTML = `${v}<small>KM/H</small>`;
     }
-    const [speaker, text] = queue.shift();
-    this.introSpeaker.textContent = speaker;
-    this.introLine.textContent = text;
   }
 
-  update(dt, state) {
-    this.setCash(this.cash);
-    const position = state.mode === 'car' ? state.car.position : state.player.position;
-    const district = this.districtAt(position.x, position.z);
-    if (district !== this.district) {
-      this.district = district;
-      this.areaName.textContent = district;
+  /** A contextual hint. Repeats of the same hint do not reset the clock. */
+  prompt(key, text, hold = 2.8) {
+    const sig = `${key}|${text}`;
+    if (sig !== this.promptSig) {
+      this.promptSig = sig;
+      this.promptKbd.textContent = key;
+      this.promptText.textContent = text;
+      this.promptTimer = hold;
+      this.promptEl.classList.add('show');
+    } else if (this.promptTimer <= 0) {
+      this.promptTimer = hold;
+      this.promptEl.classList.add('show');
     }
-    if (state.mode === 'car') {
-      const speed = Math.round(Math.abs(state.car.speed) * 3.6);
-      this.modeValue.textContent = `${speed} km/h`;
-    } else {
-      this.modeValue.textContent = 'On foot';
-    }
-    if (state.combat) this.setAmmo(state.combat.ammo, state.combat.reloading);
-    this.setWanted(state.stars ?? 0);
+  }
 
-    if (this.subtitleTimer > 0) {
-      this.subtitleTimer -= dt;
-      if (this.subtitleTimer <= 0) this.subtitle.classList.remove('visible');
+  hidePrompt() {
+    this.promptEl.classList.remove('show');
+    this.promptTimer = 0;
+    this.promptSig = '';
+  }
+
+  message(text, hold = 2.6) {
+    this.toast.textContent = text;
+    this.toast.classList.add('show');
+    this.toastTimer = hold;
+  }
+
+  openPause(open) {
+    this.pause.classList.toggle('open', open);
+  }
+
+  get paused() {
+    return this.pause.classList.contains('open');
+  }
+
+  showTitle(show) {
+    this.titleCard.classList.toggle('show', show);
+  }
+
+  veiled(show) {
+    this.root.classList.toggle('veiled', show);
+  }
+
+  /** Cinema mode hides the play furniture but keeps the title card. */
+  setCinema(on) {
+    this.root.classList.toggle('cinema', on);
+  }
+
+  update(dt, view) {
+    if (this.promptTimer > 0) {
+      this.promptTimer -= dt;
+      if (this.promptTimer <= 0) this.promptEl.classList.remove('show');
     }
     if (this.toastTimer > 0) {
       this.toastTimer -= dt;
-      if (this.toastTimer <= 0) this.toastBox.classList.remove('visible');
+      if (this.toastTimer <= 0) this.toast.classList.remove('show');
     }
-    if (this.missionTimer > 0) {
-      this.missionTimer -= dt;
-      if (this.missionTimer <= 0) this.missionCard.classList.remove('visible');
+    this.mapTimer -= dt;
+    if (view && this.mapTimer <= 0) {
+      this.mapTimer = 0.1;
+      this.drawMap(view);
     }
-    if (this.promptTimer > 0) {
-      this.promptTimer -= dt;
-      if (this.promptTimer <= 0) this.promptBox.classList.remove('visible');
-    }
-
-    this.drawMinimap(state);
   }
 
-  districtAt(x, z) {
-    if (z < OCEAN.beachStart + 20 && Math.abs(x - roadCenter(3) - 8) < 60) return 'Pier Nine';
-    const blockX = Math.min(CITY.cells - 1, Math.max(0, Math.round((x + CITY_HALF) / CITY.pitch - 0.5)));
-    const blockZ = Math.min(CITY.cells - 1, Math.max(0, Math.round((z + CITY_HALF) / CITY.pitch - 0.5)));
-    return DISTRICTS[(blockX * CITY.cells + blockZ) % DISTRICTS.length];
-  }
+  drawMap(view) {
+    const ctx = this.mapCtx;
+    const size = this.mapCanvas.width;
+    const { layout, player, car, driving } = view;
+    const half = layout.half;
+    const spanX = half * 2;
+    const spanZ = layout.quay + half;
 
-  drawMinimap(state) {
-    const context = this.context;
-    const size = this.canvas.width;
-    const half = size / 2;
-    const scale = size / MAP_SPAN;
-    const position = state.mode === 'car' ? state.car.position : state.player.position;
+    const px = (x) => ((x + half) / spanX) * (size - 12) + 6;
+    const pz = (z) => ((z + half) / spanZ) * (size - 12) + 6;
 
-    context.clearRect(0, 0, size, size);
-    context.save();
-    context.beginPath();
-    context.arc(half, half, half - 3, 0, Math.PI * 2);
-    context.clip();
+    ctx.clearRect(0, 0, size, size);
 
-    context.fillStyle = '#16343c';
-    context.fillRect(0, 0, size, size);
+    // water
+    const seaGrad = ctx.createLinearGradient(0, pz(layout.quay), 0, size);
+    seaGrad.addColorStop(0, 'rgba(72, 138, 140, 0.45)');
+    seaGrad.addColorStop(1, 'rgba(20, 52, 62, 0.7)');
+    ctx.fillStyle = seaGrad;
+    ctx.fillRect(0, pz(layout.quay), size, size - pz(layout.quay));
 
-    const toX = (worldX) => half + (worldX - position.x) * scale;
-    const toY = (worldZ) => half + (worldZ - position.z) * scale;
-
-    const sandY = toY(OCEAN.beachStart);
-    if (sandY < size) {
-      context.fillStyle = '#e3c795';
-      context.fillRect(0, sandY, size, size - sandY);
-    }
-    const waterY = toY(OCEAN.beachEnd);
-    if (waterY < size) {
-      context.fillStyle = '#1d7f9c';
-      context.fillRect(0, waterY, size, size - waterY);
-    }
-
-    context.fillStyle = '#2f4f57';
-    const road = MAP_ROAD * scale;
-    for (let index = 0; index <= CITY.cells; index += 1) {
-      const line = roadCenter(index);
-      context.fillRect(0, toY(line) - road / 2, size, road);
-      context.fillRect(toX(line) - road / 2, 0, road, size);
-    }
-
-    // Walkers: a faint scatter of dots, enough to read "people" at a glance.
-    if (state.pedestrians) {
-      context.fillStyle = 'rgba(246,241,230,0.5)';
-      for (const person of state.pedestrians.people) {
-        if (person.dead) continue;
-        const x = toX(person.x);
-        const y = toY(person.z);
-        context.fillRect(x - 1, y - 1, 2, 2);
+    // blocks
+    const bw = ((layout.block / spanX) * (size - 12));
+    const bh = ((layout.block / spanZ) * (size - 12));
+    for (let i = 0; i < layout.cols; i++) {
+      for (let j = 0; j < layout.rows; j++) {
+        const cx = half - layout.street - layout.block / 2 - i * layout.pitch;
+        const cz = half - layout.street - layout.block / 2 - j * layout.pitch;
+        const x0 = px(cx) - bw / 2;
+        const y0 = pz(cz) - bh / 2;
+        ctx.fillStyle = 'rgba(243, 231, 208, 0.26)';
+        ctx.fillRect(x0, y0, bw, bh);
+        ctx.strokeStyle = 'rgba(9, 13, 15, 0.55)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x0 + 0.5, y0 + 0.5, bw - 1, bh - 1);
       }
     }
 
-    // Cruisers flash red.
-    if (state.police) {
-      const pulse = Math.sin(performance.now() * 0.012) > 0 ? '#ff4b3a' : '#5a8cff';
-      context.fillStyle = pulse;
-      for (const unit of state.police.units) {
-        context.beginPath();
-        context.arc(toX(unit.car.position.x), toY(unit.car.position.z), 4, 0, Math.PI * 2);
-        context.fill();
-      }
+    // promenade edge and pier
+    ctx.strokeStyle = 'rgba(243, 231, 208, 0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, pz(layout.quay));
+    ctx.lineTo(size, pz(layout.quay));
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(240, 180, 90, 0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px(layout.pierX), pz(layout.quay));
+    ctx.lineTo(px(layout.pierX), pz(layout.quay + 90));
+    ctx.stroke();
+
+    // car dot
+    if (car) {
+      ctx.fillStyle = 'rgba(240, 180, 90, 0.95)';
+      ctx.beginPath();
+      ctx.arc(px(car.x), pz(car.z), driving ? 2.5 : 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(240, 180, 90, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(px(car.x), pz(car.z), driving ? 6 : 8, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
-    // The objective ring.
-    if (state.waypoint) {
-      context.strokeStyle = '#64e8ff';
-      context.lineWidth = 2;
-      context.beginPath();
-      context.arc(toX(state.waypoint.x), toY(state.waypoint.z), 6, 0, Math.PI * 2);
-      context.stroke();
-    }
-
-    context.save();
-    context.translate(half, half);
-    if (state.mode === 'car') {
-      context.rotate(Math.PI - state.car.heading);
-      context.fillStyle = '#ff7a4d';
-      context.fillRect(-3.5, -6, 7, 12);
-    } else {
-      context.rotate(-state.cameraYaw);
-      context.beginPath();
-      context.moveTo(0, -9);
-      context.lineTo(6.5, 7);
-      context.lineTo(0, 3.5);
-      context.lineTo(-6.5, 7);
-      context.closePath();
-      context.fillStyle = '#ff7a4d';
-      context.fill();
-    }
-    context.restore();
-
-    const vignette = context.createRadialGradient(half, half, half * 0.5, half, half, half);
-    vignette.addColorStop(0, 'rgba(0,0,0,0)');
-    vignette.addColorStop(1, 'rgba(4,16,20,0.6)');
-    context.fillStyle = vignette;
-    context.fillRect(0, 0, size, size);
-
-    context.restore();
-    context.strokeStyle = 'rgba(246,241,230,0.28)';
-    context.lineWidth = 2;
-    context.beginPath();
-    context.arc(half, half, half - 3, 0, Math.PI * 2);
-    context.stroke();
+    // player arrow
+    const ax = px(player.x);
+    const az = pz(player.z);
+    ctx.save();
+    ctx.translate(ax, az);
+    ctx.rotate(-player.yaw);
+    ctx.fillStyle = '#f3e7d0';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.moveTo(0, -7);
+    ctx.lineTo(5.2, 5.4);
+    ctx.lineTo(0, 2.6);
+    ctx.lineTo(-5.2, 5.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 }
+
+export { districtAt };
