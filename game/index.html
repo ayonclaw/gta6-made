@@ -16,7 +16,7 @@
     <div id="wordmark">Palm&nbsp;Havoc</div>
     <div id="objective"></div>
 
-    <div id="cash-badge"><span class="cash-label">Cash</span><span id="cash-value">$0</span></div>
+    <div id="cash-badge"><span class="cash-label">Cash</span><span id="cash-value">$1,200</span></div>
 
     <div id="wanted" aria-label="Wanted level">
       <span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span>
@@ -44,13 +44,34 @@
       <div id="weapon-name">Pistol<span id="ammo-value">12</span></div>
       <div class="strip-divider"></div>
       <div id="mode-value">On foot</div>
-      <div class="strip-divider"></div>
-      <div id="hint">WASD &middot; E car &middot; F fire &middot; R reload &middot; Space handbrake</div>
     </div>
+
+    <!-- Contextual prompt: it appears when it can help and fades when it cannot. -->
+    <div id="prompt"><span id="prompt-key">E</span><span id="prompt-text"></span></div>
 
     <div id="minimap-frame">
       <canvas id="minimap" width="192" height="192"></canvas>
       <span class="compass">N</span>
+    </div>
+  </div>
+
+  <div id="pause">
+    <div class="pause-card">
+      <p class="eyebrow">Paused &middot; Marisol Bay</p>
+      <h2>Controls</h2>
+      <div class="pause-grid">
+        <div><b>W A S D</b><span>walk, and drive once you are in a car</span></div>
+        <div><b>Mouse</b><span>look around</span></div>
+        <div><b>Shift</b><span>sprint on foot</span></div>
+        <div><b>E</b><span>steal the nearest car, or step out</span></div>
+        <div><b>F</b><span>fire &mdash; hold the mouse button to keep firing</span></div>
+        <div><b>R</b><span>reload</span></div>
+        <div><b>Space</b><span>handbrake</span></div>
+        <div><b>H</b><span>horn</span></div>
+        <div><b>Tab</b><span>this card</span></div>
+        <div><b>Esc</b><span>free the mouse</span></div>
+      </div>
+      <p class="pause-foot">Tab or click to get back to the street</p>
     </div>
   </div>
 
@@ -82,7 +103,7 @@
         <li><b>E</b> steal or leave any car</li>
         <li><b>F</b> fire &middot; <b>R</b> reload</li>
         <li><b>Space</b> handbrake</li>
-        <li><b>Esc</b> free the mouse</li>
+        <li><b>Tab</b> controls</li>
       </ul>
     </div>
   </div>

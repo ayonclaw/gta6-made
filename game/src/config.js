@@ -37,13 +37,16 @@ export const OCEAN = {
 };
 
 /** Direction toward the sun, in world space: low, warm and down the main boulevard. */
-export const SUN = { x: -0.44, y: 0.34, z: -0.79 };
+export const SUN = { x: -0.47, y: 0.30, z: -0.78 };
+
+/** What the player is worth on arrival: the number the HUD, the save and the payouts agree on. */
+export const START_CASH = 1200;
 
 export const COLORS = {
   skyTop: 0x1c6ed0,
   skyMid: 0x6fb6e9,
   horizon: 0xf8e0c0,
-  haze: 0xeadfc8,
+  haze: 0xd6c7ab,
   sunDisc: 0xfff6de,
   asphalt: 0x43474e,
   laneMark: 0xf6f1e2,
@@ -77,20 +80,6 @@ export const FACADES = [
   { family: 'stone', wall: '#c9c6bb', trim: '#efede6', accent: '#3d5c74' },
 ];
 
-/** Shop names painted over the storefronts, one per facade family, so signage reads as a place. */
-export const SHOP_NAMES = [
-  ['MARISOL', 'CAFE AZUL', 'DEL SOL', 'PALMAS'],
-  ['TIENDA', 'BODEGA', 'CANTINA', 'ZAPATOS'],
-  ['BANCO', 'OFICINAS', 'EL FARO', 'CLINICA'],
-  ['HOTEL BAY', 'LA MARINA', 'PERFUMES', 'GALERIA'],
-  ['FARMACIA', 'PANADERIA', 'LICORES', 'CINE'],
-  ['MOTEL', 'TALLER', 'PESCADO', 'BAR'],
-  ['AURORA', 'VERTEX', 'NORTHSTAR', 'HELIX'],
-  ['KITE', 'MERIDIAN', 'FATHOM', 'ORBIT'],
-  ['GRAN HOTEL', 'TEATRO', 'MUSEO', 'BOLSA'],
-  ['MERCADO', 'SODA', 'FLORES', 'RELOJES'],
-];
-
 export const DRESS = {
   skin: '#c98d63',
   hair: '#241c16',
@@ -117,22 +106,22 @@ export const TRAFFIC_PAINTS = [
 
 /** Traffic: how many cars orbit the grid, how fast and how closely they queue. */
 export const TRAFFIC = {
-  count: 70,
-  despawn: 205,
+  count: 132,
+  despawn: 172,
   laneOffset: 4.5,
-  cruise: 13.5,
+  cruise: 12.8,
   turnSpeed: 7.0,
   accel: 6.5,
   brake: 18,
-  gap: 9.5,
+  gap: 9.2,
   lightCycle: 13,     // seconds for a full green/red cycle at every junction
-  stopLine: 12.5,
+  stopLine: 13.5,
   stealRadius: 5.5,
 };
 
 /** Pedestrians: walkers on the pavement rings, and how far they run when something goes wrong. */
 export const PED = {
-  count: 132,
+  count: 176,
   speed: 1.35,
   runSpeed: 4.6,
   radius: 0.36,
@@ -223,9 +212,9 @@ export const CAMERA = {
 };
 
 export const WORLD = {
-  fogNear: 110,
-  fogFar: 820,
-  shadowRadius: 165,
+  fogNear: 200,
+  fogFar: 1580,
+  shadowRadius: 148,
   shadowMapSize: 2048,
 };
 

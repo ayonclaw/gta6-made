@@ -3,6 +3,7 @@
 // from six instanced meshes, so forty of them cost about as much as six.
 import * as THREE from '../vendor/three.module.min.js';
 import { CITY, CITY_HALF, TRAFFIC, TRAFFIC_PAINTS, roadCenter } from './config.js';
+import { createContactPatch } from './textures.js';
 import { pick, range } from './rng.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -64,6 +65,22 @@ export class Traffic {
       color: 0xff6a52, emissive: 0xff3a20, emissiveIntensity: 0.8, roughness: 0.4,
     }), this.count);
 
+    // A soft contact patch under every car: the shadow the sun would throw if the sun were softer.
+    const patchGeometry = new THREE.PlaneGeometry(1, 1);
+    patchGeometry.rotateX(-Math.PI / 2);
+    this.patches = new THREE.InstancedMesh(
+      patchGeometry,
+      new THREE.MeshBasicMaterial({
+        map: createContactPatch(), transparent: true, opacity: 0.72, depthWrite: false,
+        color: 0x0a1014, toneMapped: false,
+      }),
+      this.count,
+    );
+    this.patches.frustumCulled = false;
+    this.patches.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.patches.renderOrder = 1;
+    scene.add(this.patches);
+
     for (const mesh of [this.body, this.skirt, this.cabin, this.wheels, this.head, this.tail]) {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -92,7 +109,14 @@ export class Traffic {
     const street = this.pickStreet();
     const axis = random() < 0.5 ? 'z' : 'x';
     const dir = random() < 0.5 ? 1 : -1;
-    let along = range(random, -CITY_HALF + 14, CITY_HALF - 14);
+    // Half of the fleet starts stacked up the approach to a junction, where a queue belongs.
+    let along;
+    if (random() < 0.55) {
+      const node = 1 + Math.floor(random() * (CITY.cells - 1));
+      along = roadCenter(node) - dir * range(random, 7, 84);
+    } else {
+      along = range(random, -CITY_HALF + 14, CITY_HALF - 14);
+    }
     // Keep a gap from anything already on the lane.
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const clash = this.cars.some((other) => other.alive
@@ -135,20 +159,24 @@ export class Traffic {
     const nearStreetX = Math.max(0, Math.min(CITY.cells, Math.round((focus.x + CITY_HALF) / CITY.pitch)));
     const nearStreetZ = Math.max(0, Math.min(CITY.cells, Math.round((focus.z + CITY_HALF) / CITY.pitch)));
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      // Most replacement cars come onto the avenue the player is actually on.
-      const local = random() < 0.7;
+      // A replacement car comes back onto the block the player is in, but spread across the lanes
+      // around it: piling every car onto one avenue is what turns a busy street into a car park.
+      const local = random() < 0.62;
       const axis = local ? (Math.abs(focus.x - roadCenter(nearStreetX)) < Math.abs(focus.z - roadCenter(nearStreetZ)) ? 'z' : 'x')
         : (random() < 0.5 ? 'z' : 'x');
-      const street = local ? (axis === 'z' ? nearStreetX : nearStreetZ) : this.pickStreet();
+      const near = axis === 'z' ? nearStreetX : nearStreetZ;
+      const street = local
+        ? Math.max(0, Math.min(CITY.cells, near + Math.round(range(random, -1.4, 1.4))))
+        : this.pickStreet();
       const dir = random() < 0.5 ? 1 : -1;
-      const along = axis === 'z' ? focus.z + range(random, -160, 160) : focus.x + range(random, -160, 160);
+      const along = (axis === 'z' ? focus.z : focus.x) + range(random, -88, 88);
       if (along < -CITY_HALF + 20 || along > CITY_HALF - 20) continue;
       const centre = roadCenter(street);
       const lat = laneLat(axis, dir);
       const x = axis === 'z' ? centre + lat : along;
       const z = axis === 'z' ? along : centre + lat;
       const distance = Math.hypot(x - focus.x, z - focus.z);
-      if (distance < 60) continue;
+      if (distance < 26) continue;
       car.axis = axis;
       car.street = street;
       car.dir = dir;
@@ -254,7 +282,11 @@ export class Traffic {
     this.writeMatrices();
   }
 
-  /** Move a car onto a new lane at junction `node`. */
+  /**
+   * Move a car onto a new lane at junction `node`. A car only takes a lane that has room for it:
+   * pulling into a full lane is how a grid locks up, because the car then sits in the box and
+   * blocks the crossing traffic that was about to clear it.
+   */
   turn(car, node) {
     const options = [];
     const straightNode = node + car.dir;
@@ -268,15 +300,37 @@ export class Traffic {
     }
     if (!options.length) return;
 
+    const position = this.positionOf(car, TMP);
+    const clear = [];
+    for (const option of options) {
+      const along = option.axis === 'z' ? position.z : position.x;
+      let blocked = false;
+      for (const other of this.cars) {
+        if (other === car || !other.alive) continue;
+        if (other.axis !== option.axis || other.street !== option.street || other.dir !== option.dir) continue;
+        if (Math.abs(other.along - along) < 12) {
+          blocked = true;
+          break;
+        }
+      }
+      if (!blocked) clear.push({ ...option, along });
+    }
+
+    // Nowhere to put the car: hold at the line and let the junction clear.
+    if (!clear.length) {
+      car.speed = Math.min(car.speed, 2);
+      return;
+    }
+
     const random = this.random;
-    const choice = options[random() < 0.55 ? 0 : Math.floor(random() * options.length)];
+    const straight = clear.find((option) => option.axis === car.axis);
+    const choice = straight && random() < 0.42 ? straight : clear[Math.floor(random() * clear.length)];
     if (choice.axis === car.axis) return;
 
-    const position = this.positionOf(car, TMP);
     car.axis = choice.axis;
     car.street = choice.street;
     car.dir = choice.dir;
-    car.along = choice.axis === 'z' ? position.z : position.x;
+    car.along = choice.along;
     car.lat = choice.axis === 'z' ? position.x - roadCenter(choice.street) : position.z - roadCenter(choice.street);
     car.speed *= 0.86;
   }
@@ -287,7 +341,7 @@ export class Traffic {
     let live = 0;
     for (const car of this.cars) {
       const position = this.positionOf(car, TMP);
-      const slot = live;
+
       if (!car.alive) {
         dummy.position.set(0, -400, 0);
         dummy.scale.setScalar(0.001);
@@ -299,8 +353,16 @@ export class Traffic {
         this.head.setMatrixAt(car.index, dummy.matrix);
         this.tail.setMatrixAt(car.index, dummy.matrix);
         for (let wheel = 0; wheel < 4; wheel += 1) this.wheels.setMatrixAt(car.index * 4 + wheel, dummy.matrix);
+        this.patches.setMatrixAt(car.index, dummy.matrix);
         continue;
       }
+
+      // The soft contact patch on the asphalt, wider than the tyres and darker in the middle.
+      dummy.position.set(position.x, 0.055, position.z);
+      dummy.rotation.set(0, car.heading, 0);
+      dummy.scale.set(2.7, 1, car.length * 5.2);
+      dummy.updateMatrix();
+      this.patches.setMatrixAt(car.index, dummy.matrix);
 
       const cos = Math.cos(car.heading);
       const sin = Math.sin(car.heading);
@@ -337,6 +399,7 @@ export class Traffic {
     this.wheels.instanceMatrix.needsUpdate = true;
     this.head.instanceMatrix.needsUpdate = true;
     this.tail.instanceMatrix.needsUpdate = true;
+    this.patches.instanceMatrix.needsUpdate = true;
     this.live = live;
   }
 

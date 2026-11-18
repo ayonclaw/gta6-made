@@ -1,7 +1,7 @@
 // Palm Havoc — boot, the frame loop, and the state the whole city hangs off: the walker, the car
 // you are driving, and every system that moves around them.
 import * as THREE from '../vendor/three.module.min.js';
-import { blockCenter, roadCenter, CRIME } from './config.js';
+import { blockCenter, roadCenter, CRIME, START_CASH } from './config.js';
 import { makeRandom, hashSeed } from './rng.js';
 import { Traffic } from './traffic.js';
 import { Pedestrians } from './pedestrians.js';
@@ -43,12 +43,17 @@ const input = new Input(canvas);
 
 let mode = 'foot';
 let running = false;
+let paused = false;
 let lastTime = 0;
 let time = 0;
-let cash = 0;
 let wastedTimer = 0;
 let lastCrimeSound = 0;
 let stoleCarFlag = false;
+let promptClock = 0;
+
+// The player arrives with money in their pocket: the same number the save and the HUD carry.
+const existing = loadSave();
+let cash = existing && Number.isFinite(existing.cash) ? existing.cash : START_CASH;
 
 const parked = [car];
 
@@ -145,6 +150,7 @@ function step(dt, controls, activeMode) {
   combat.update(dt, driving ? null : player);
   missions.update(dt);
   city.landmarks.tick(dt, time);
+  if (city.water) city.water.tick(dt, time, world.camera.position);
 
   // The player's car shoves traffic, and traffic shoves it back.
   if (driving) {
@@ -342,6 +348,7 @@ const game = {
   input,
   step,
   shoot,
+  tickPrompts: updatePrompts,
   get mode() {
     return mode;
   },
@@ -383,11 +390,7 @@ const game = {
 startButton.textContent = 'Click to play';
 startButton.disabled = false;
 
-const existing = loadSave();
-if (existing) {
-  cash = existing.cash ?? 0;
-  hud.setCash(cash);
-}
+hud.setCash(cash);
 
 if (shotName) {
   stageShot(shotName, game);
@@ -423,8 +426,33 @@ window.addEventListener('keydown', (event) => {
   if (!running && (event.code === 'Enter' || event.code === 'Space')) {
     event.preventDefault();
     begin();
+    return;
+  }
+  // Tab holds the whole control list; Escape closes it before it frees the mouse.
+  if (event.code === 'Tab') {
+    event.preventDefault();
+    togglePause();
+    return;
+  }
+  if (event.code === 'Escape' && paused) {
+    togglePause();
   }
 });
+
+/** The controls card freezes the street while it is up. */
+function togglePause() {
+  if (!running) return;
+  paused = !paused;
+  hud.setPause(paused);
+  hud.dismissPrompt();
+  if (paused) {
+    document.exitPointerLock?.();
+  } else {
+    input.requestLock();
+    audio.resume();
+    lastTime = 0;
+  }
+}
 introOverlay.addEventListener('click', () => hud.advanceIntro());
 canvas.addEventListener('click', () => {
   if (running && !input.locked) {
@@ -434,6 +462,56 @@ canvas.addEventListener('click', () => {
 });
 window.addEventListener('beforeunload', persist);
 
+const SHOWN = new Set();
+let lastPromptedCar = undefined;
+let promptCooldown = 0;
+
+/**
+ * Contextual prompts, not a permanent key strip: the first few seconds point at walking, and after
+ * that the HUD only speaks when the player is next to something they could act on. Everything it
+ * says is in the Tab card as well, so nothing is ever lost.
+ */
+function updatePrompts(dt) {
+  promptClock += dt;
+  promptCooldown = Math.max(0, promptCooldown - dt);
+  if (mode === 'foot' && promptCooldown <= 0) {
+    const near = traffic.nearestStealable(player.position, 6.5);
+    // Once per car, and never twice in a row: a prompt that pulses at a parked car forever is
+    // the same tell as a permanent hint strip.
+    if (near && near.car !== lastPromptedCar) {
+      lastPromptedCar = near.car;
+      promptCooldown = 11;
+      hud.prompt('E', 'Steal this car', 2.2);
+      return;
+    }
+  }
+  if (mode === 'car' && Math.abs(car.speed) < 1.5) {
+    if (!SHOWN.has('exit')) {
+      SHOWN.add('exit');
+      hud.prompt('E', 'Step out', 2.6);
+      return;
+    }
+  }
+  if (!combat.reloading && combat.ammo === 0) {
+    hud.prompt('R', 'Reload', 1.8);
+    return;
+  }
+  if (promptClock < 3.6 && !SHOWN.has('walk')) {
+    SHOWN.add('walk');
+    hud.prompt('W A S D', 'Walk the bay', 2.6);
+    return;
+  }
+  if (promptClock > 4.2 && promptClock < 7.4 && !SHOWN.has('sprint')) {
+    SHOWN.add('sprint');
+    hud.prompt('SHIFT', 'Hold to run', 2.2);
+    return;
+  }
+  if (police.stars > 0 && !SHOWN.has('run') && promptClock < 30) {
+    SHOWN.add('run');
+    hud.prompt('GAS', 'Lose them', 2.0);
+  }
+}
+
 const FIXED_STEP = 1 / 60;
 let accumulator = 0;
 
@@ -442,7 +520,9 @@ function frame(now) {
   const dt = lastTime ? Math.min(0.25, (now - lastTime) / 1000) : FIXED_STEP;
   lastTime = now;
 
-  if (running) {
+  if (running && paused) {
+    hud.update(dt, game.hudState());
+  } else if (running) {
     const look = input.takeLook();
     rig.look(look.x, look.y);
     if (input.consumePress('KeyE')) {
@@ -465,8 +545,10 @@ function frame(now) {
     hud.setHealth(combat.health);
     audio.update(dt, { speed: car.speed, driving: mode === 'car', wanted: police.stars });
     if (missions.cash !== hud.cash) hud.setCash(missions.cash);
+    updatePrompts(dt);
   }
 
+  if (city.water) city.water.setCamera(world.camera.position);
   world.render();
   input.endFrame();
 }

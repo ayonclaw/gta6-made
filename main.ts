@@ -5,8 +5,8 @@
 // writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
 //
 // Palm Havoc: an open-world crime game in Marisol Bay. The city is a grid of blocks with streets,
-// pavements, palms, towers, a pier and a bay; 70 cars work the lane graph, 132 walkers pace the
-// pavements, and you can steal any car on the road. Crimes raise a five-star wanted level and
+// pavements, palms, towers, a pier and an animated bay; 132 cars work the lane graph, 176 walkers
+// crowd the crossings and shop doors, and you can steal any car on the road. Crimes raise a five-star wanted level and
 // cruisers answer it, there is a pistol with hitscan and health, and three chained jobs with
 // objectives, dialogue and payouts. Money, mission progress and the wanted level save to
 // localStorage; every sound is synthesised with WebAudio, so the entry ships no image or audio file.

@@ -34,6 +34,10 @@ export class Hud {
     this.introLine = document.getElementById('intro-line');
     this.introSpeaker = document.getElementById('intro-speaker');
     this.introHint = document.getElementById('intro-hint');
+    this.promptBox = document.getElementById('prompt');
+    this.promptKey = document.getElementById('prompt-key');
+    this.promptText = document.getElementById('prompt-text');
+    this.pauseCard = document.getElementById('pause');
 
     this.cash = 0;
     this.health = 1;
@@ -43,6 +47,33 @@ export class Hud {
     this.toastTimer = 0;
     this.missionTimer = 0;
     this.introQueue = null;
+    this.promptTimer = 0;
+    this.promptLine = '';
+    this.promptsEnabled = true;
+  }
+
+  /** A prompt stays up for `seconds`, then fades: the HUD says nothing it does not have to. */
+  prompt(key, text, seconds = 2.4) {
+    if (!this.promptsEnabled) return;
+    if (this.promptLine === text && this.promptTimer > 0) return;
+    this.promptKey.textContent = key;
+    this.promptText.textContent = text;
+    this.promptLine = text;
+    this.promptBox.classList.add('visible');
+    this.promptTimer = seconds;
+  }
+
+  dismissPrompt() {
+    this.promptTimer = 0;
+    this.promptBox.classList.remove('visible');
+  }
+
+  get promptVisible() {
+    return this.promptBox.classList.contains('visible');
+  }
+
+  setPause(open) {
+    this.pauseCard.classList.toggle('visible', open);
   }
 
   show() {
@@ -157,6 +188,10 @@ export class Hud {
     if (this.missionTimer > 0) {
       this.missionTimer -= dt;
       if (this.missionTimer <= 0) this.missionCard.classList.remove('visible');
+    }
+    if (this.promptTimer > 0) {
+      this.promptTimer -= dt;
+      if (this.promptTimer <= 0) this.promptBox.classList.remove('visible');
     }
 
     this.drawMinimap(state);

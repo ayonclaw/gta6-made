@@ -7,9 +7,11 @@ import {
   blockCenter, roadCenter,
 } from './config.js';
 import {
-  createAsphalt, createPavement, createSand, createWater, createFacadeTextures,
+  createAsphalt, createPavement, createSand, createFacadeTextures,
   createStorefrontTextures, createSignTexture,
 } from './textures.js';
+import { ROOF_WORDS } from './shops.js';
+import { buildWater } from './water.js';
 import { range, chance, pick } from './rng.js';
 import { plantPalms, lightStreets, dressRoofs, parkCars, dressCorners } from './props.js';
 import { buildLandmarks } from './landmarks.js';
@@ -65,14 +67,21 @@ export function pushOutOfBoxes(boxes, x, z, radius) {
 }
 
 function buildGround(parent, surfaces) {
-  const outskirts = new THREE.Mesh(
-    new THREE.PlaneGeometry(4200, 4200),
-    new THREE.MeshStandardMaterial({ color: COLORS.outskirt, roughness: 1 }),
-  );
-  outskirts.rotation.x = -Math.PI / 2;
-  outskirts.position.y = -0.62;
-  outskirts.receiveShadow = true;
-  parent.add(outskirts);
+  // Dry land only: three aprons around the grid, so the bay has no tan floor showing through the
+  // swell. The seaward side is left open for the water.
+  const outskirtsMaterial = new THREE.MeshStandardMaterial({ color: COLORS.outskirt, roughness: 1 });
+  const aprons = [
+    { width: 4200, depth: 1800, x: 0, z: 1195 },
+    { width: 1805, depth: 581, x: -1197, z: 4 },
+    { width: 1805, depth: 581, x: 1197, z: 4 },
+  ];
+  for (const apron of aprons) {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(apron.width, apron.depth), outskirtsMaterial);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(apron.x, -0.62, apron.z);
+    mesh.receiveShadow = true;
+    parent.add(mesh);
+  }
 
   const asphalt = new THREE.Mesh(
     new THREE.PlaneGeometry(CITY_SPAN + 70, CITY_SPAN + 70),
@@ -83,31 +92,18 @@ function buildGround(parent, surfaces) {
   parent.add(asphalt);
 }
 
-function buildBay(parent, surfaces) {
+function buildBay(parent, random) {
   const depth = Math.abs(OCEAN.beachEnd - OCEAN.beachStart);
   const beach = new THREE.Mesh(
     new THREE.BoxGeometry(2400, 0.5, depth),
-    new THREE.MeshStandardMaterial({ map: surfaces.sand, roughness: 1 }),
+    new THREE.MeshStandardMaterial({ map: createSand(random), roughness: 1 }),
   );
   beach.position.set(0, -0.05, (OCEAN.beachStart + OCEAN.beachEnd) / 2);
   beach.receiveShadow = true;
   parent.add(beach);
 
-  const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(3000, 1500, 1, 1),
-    new THREE.MeshStandardMaterial({ map: surfaces.water, roughness: 0.12, metalness: 0.55 }),
-  );
-  water.rotation.x = -Math.PI / 2;
-  water.position.set(0, OCEAN.level, OCEAN.beachEnd - 750);
-  parent.add(water);
-
-  const foam = new THREE.Mesh(
-    new THREE.PlaneGeometry(2400, 9),
-    new THREE.MeshStandardMaterial({ color: 0xf7fbfc, roughness: 0.6, transparent: true, opacity: 0.75 }),
-  );
-  foam.rotation.x = -Math.PI / 2;
-  foam.position.set(0, 0.02, OCEAN.beachEnd + 3);
-  parent.add(foam);
+  // Animated water: swell in the vertex shader, sun glitter in the fragment shader.
+  const water = buildWater(parent);
 
   // A low sea wall separates the last row of blocks from the sand, with a gap at the pier.
   const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xe6ddca, roughness: 0.9 });
@@ -120,6 +116,7 @@ function buildBay(parent, surfaces) {
     wall.receiveShadow = true;
     parent.add(wall);
   }
+  return water;
 }
 
 /** Lane dashes down the middle of every street, and crosswalks at every crossing. */
@@ -202,10 +199,32 @@ function pickVariant(random, surfaces, height) {
 function buildBlocks(parent, random, surfaces, colliders, buildings, reserved, staff) {
   const pavementMaterial = new THREE.MeshStandardMaterial({ map: surfaces.pavement, roughness: 0.9 });
 
+  /** A shuffled deck, dealt one card at a time: no two neighbours draw the same name. */
+  const dealer = (size) => {
+    const order = [];
+    for (let index = 0; index < size; index += 1) order.push(index);
+    for (let index = order.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(random() * (index + 1));
+      [order[index], order[swap]] = [order[swap], order[index]];
+    }
+    let cursor = 0;
+    return () => {
+      const card = order[cursor % order.length];
+      cursor += 1;
+      return card;
+    };
+  };
+
   for (let blockX = 0; blockX < CITY.cells; blockX += 1) {
     for (let blockZ = 0; blockZ < CITY.cells; blockZ += 1) {
       const centreX = blockCenter(blockX);
       const centreZ = blockCenter(blockZ);
+
+      // Each block is dealt its own deck of shopfronts and rooftop words.
+      const shopCard = dealer(surfaces.storefronts.length);
+      const roofCard = dealer(ROOF_WORDS.length);
+      const nextShop = () => surfaces.storefronts[shopCard()];
+      const nextRoofWord = () => ROOF_WORDS[roofCard()];
 
       const pavement = new THREE.Mesh(
         new THREE.BoxGeometry(BLOCK_SIZE, CITY.curbHeight, BLOCK_SIZE),
@@ -236,7 +255,9 @@ function buildBlocks(parent, random, surfaces, colliders, buildings, reserved, s
           ));
           if (clashes) continue;
 
-          addBuilding(parent, random, surfaces, buildings, { x, z, width, depth, height, blockX, blockZ });
+          addBuilding(parent, random, surfaces, buildings, {
+            x, z, width, depth, height, blockX, blockZ, nextShop, nextRoofWord,
+          });
           colliders.push({
             minX: x - width / 2 - 0.4,
             maxX: x + width / 2 + 0.4,
@@ -249,13 +270,18 @@ function buildBlocks(parent, random, surfaces, colliders, buildings, reserved, s
   }
 }
 
-function addTower(parent, facade, x, z, width, depth, height, baseY) {
+function addTower(parent, facade, x, z, width, depth, height, baseY, tint) {
   const texture = facade.map.clone();
   texture.needsUpdate = true;
   texture.repeat.set(Math.max(1, Math.round(width / 8)), Math.max(1, Math.round(height / 9)));
   const tower = new THREE.Mesh(
     new THREE.BoxGeometry(width, height, depth),
-    new THREE.MeshStandardMaterial({ map: texture, roughness: facade.family === 'glass' ? 0.28 : 0.72, metalness: facade.family === 'glass' ? 0.5 : 0.06 }),
+    new THREE.MeshStandardMaterial({
+      map: texture,
+      color: tint,
+      roughness: facade.family === 'glass' ? 0.26 : 0.72,
+      metalness: facade.family === 'glass' ? 0.52 : 0.06,
+    }),
   );
   tower.position.set(x, baseY + height / 2, z);
   tower.castShadow = true;
@@ -264,27 +290,40 @@ function addTower(parent, facade, x, z, width, depth, height, baseY) {
   return tower;
 }
 
-const ROOF_SIGNS = ['MARISOL', 'BAY HOTEL', 'DEL SOL', 'CASA NORTE'];
+const ROOF_SIGN_LOOKS = [
+  { background: '#18262c', border: '#ff7a4d', face: 'sans', weight: 900, tracking: 0.06 },
+  { background: '#6d2a24', border: '#f7dfb8', face: 'serif', weight: 700, tracking: 0.12 },
+  { background: '#1d3d47', border: '#9fd9e2', face: 'condensed', weight: 800, tracking: 0.2 },
+  { background: '#2a2438', border: '#ffc871', face: 'mono', weight: 700, tracking: 0.08 },
+  { background: '#20443c', border: '#f0dcae', face: 'grotesk', weight: 600, tracking: 0.22 },
+];
 
 function addBuilding(parent, random, surfaces, buildings, spec) {
-  const { x, z, width, depth, height } = spec;
+  const { x, z, width, depth, height, nextShop, nextRoofWord } = spec;
   const variant = pickVariant(random, surfaces, height);
   const facade = surfaces.facades[variant];
   const base = CITY.curbHeight;
   const podiumHeight = Math.min(4.6, Math.max(3.2, height * 0.26));
   const towerHeight = height - podiumHeight;
 
-  // Ground floor: a shop with a named fascia, or a plain stone base for the towers.
+  // A tint of its own, so no two blocks of the same palette are the same block.
+  const tint = new THREE.Color(1, 1, 1).offsetHSL(
+    range(random, -0.015, 0.015),
+    range(random, -0.03, 0.02),
+    range(random, -0.06, 0.05),
+  );
+
+  // Ground floor: a shop with a named fascia, or a plain stone base for the towers. A corner
+  // building gets a different name on each street, the way a real corner does.
   if (height < 42 || chance(random, 0.55)) {
-    const shop = chance(random, 0.7)
-      ? pick(random, surfaces.storefronts)
-      : surfaces.storefronts[variant * 4 % surfaces.storefronts.length];
-    const storeTexture = shop.map.clone();
-    storeTexture.needsUpdate = true;
-    storeTexture.repeat.set(Math.max(1, Math.round(width / 12)), 1);
+    const shop = nextShop ? nextShop() : surfaces.storefronts[0];
+    const cornerShop = nextShop ? nextShop() : surfaces.storefronts[(surfaces.storefronts.indexOf(shop) + 1) % surfaces.storefronts.length];
+    const frontMaterial = new THREE.MeshStandardMaterial({ map: shop.map, roughness: 0.42, metalness: 0.2 });
+    const sideMaterial = new THREE.MeshStandardMaterial({ map: cornerShop.map, roughness: 0.42, metalness: 0.2 });
+    const plinthMaterial = new THREE.MeshStandardMaterial({ color: 0x2b2a27, roughness: 0.9 });
     const podium = new THREE.Mesh(
       new THREE.BoxGeometry(width + 0.9, podiumHeight, depth + 0.9),
-      new THREE.MeshStandardMaterial({ map: storeTexture, roughness: 0.45, metalness: 0.22 }),
+      [frontMaterial, frontMaterial, plinthMaterial, plinthMaterial, sideMaterial, sideMaterial],
     );
     podium.position.set(x, base + podiumHeight / 2, z);
     podium.castShadow = true;
@@ -293,7 +332,7 @@ function addBuilding(parent, random, surfaces, buildings, spec) {
 
     const awning = new THREE.Mesh(
       new THREE.BoxGeometry(width + 1.7, 0.3, depth + 1.7),
-      new THREE.MeshStandardMaterial({ color: new THREE.Color(shop.accent), roughness: 0.85 }),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(shop.accent ?? facade.accent), roughness: 0.85 }),
     );
     awning.position.set(x, base + podiumHeight + 0.15, z);
     awning.castShadow = true;
@@ -308,17 +347,21 @@ function addBuilding(parent, random, surfaces, buildings, spec) {
   if (stepped) {
     const lower = towerHeight * 0.62;
     const upper = towerHeight - lower;
-    addTower(parent, facade, x, z, width, depth, lower, base + podiumHeight);
+    addTower(parent, facade, x, z, width, depth, lower, base + podiumHeight, tint);
     roofWidth = width * 0.72;
     roofDepth = depth * 0.72;
-    addTower(parent, facade, x, z, roofWidth, roofDepth, upper, base + podiumHeight + lower);
+    addTower(parent, facade, x, z, roofWidth, roofDepth, upper, base + podiumHeight + lower, tint);
   } else {
-    addTower(parent, facade, x, z, width, depth, towerHeight, base + podiumHeight);
+    addTower(parent, facade, x, z, width, depth, towerHeight, base + podiumHeight, tint);
   }
+
+  const roofTone = new THREE.Color(
+    facade.family === 'brick' ? 0x9a6a4c : 0xd7cebd,
+  ).offsetHSL(range(random, -0.02, 0.02), range(random, -0.04, 0.04), range(random, -0.08, 0.06));
 
   const roof = new THREE.Mesh(
     new THREE.BoxGeometry(roofWidth + 0.7, 0.45, roofDepth + 0.7),
-    new THREE.MeshStandardMaterial({ color: facade.family === 'brick' ? 0x9a6a4c : 0xd7cebd, roughness: 0.95 }),
+    new THREE.MeshStandardMaterial({ color: roofTone, roughness: 0.95 }),
   );
   roof.position.set(x, base + height - 0.05, z);
   roof.castShadow = true;
@@ -326,9 +369,18 @@ function addBuilding(parent, random, surfaces, buildings, spec) {
   parent.add(roof);
 
   // A few rooftops carry a board with the building's name on it: the skyline gets words.
-  if (height > 34 && chance(random, 0.3)) {
-    const texture = createSignTexture(pick(random, ROOF_SIGNS), {
-      width: 512, height: 128, size: 60, background: '#1b2a30', border: facade.facade.accent,
+  if (height > 30 && chance(random, 0.42)) {
+    const look = pick(random, ROOF_SIGN_LOOKS);
+    const word = nextRoofWord ? nextRoofWord() : pick(random, ROOF_WORDS);
+    const texture = createSignTexture(word, {
+      width: 512,
+      height: 128,
+      size: Math.round(range(random, 54, 74)),
+      background: look.background,
+      border: look.border,
+      face: look.face,
+      weight: look.weight,
+      tracking: look.tracking,
     });
     const board = new THREE.Mesh(
       new THREE.PlaneGeometry(roofWidth * 0.9, roofWidth * 0.22),
@@ -341,7 +393,7 @@ function addBuilding(parent, random, surfaces, buildings, spec) {
   buildings.push({
     x, z, width, depth, roofWidth, roofDepth, height,
     top: base + height,
-    accent: facade.facade.accent,
+    accent: facade.accent,
     family: facade.family,
   });
 }
@@ -354,8 +406,6 @@ export function buildCity(scene, random) {
   const surfaces = {
     asphalt: createAsphalt(random),
     pavement: createPavement(random),
-    sand: createSand(random),
-    water: createWater(random),
     facades: createFacadeTextures(random),
     storefronts: createStorefrontTextures(random),
   };
@@ -365,7 +415,7 @@ export function buildCity(scene, random) {
 
   buildGround(group, surfaces);
   buildStreets(group);
-  buildBay(group, surfaces);
+  const water = buildBay(group, random);
 
   // Landmarks reserve their lots before the procedural blocks fill in around them.
   const landmarks = buildLandmarks(group, random, colliders, PLATFORMS);
@@ -384,6 +434,7 @@ export function buildCity(scene, random) {
     colliders,
     buildings,
     landmarks,
+    water,
     spawn,
     sun: new THREE.Vector3(SUN.x, SUN.y, SUN.z).normalize(),
   };

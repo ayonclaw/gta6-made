@@ -2,7 +2,8 @@
 // sand, water, four families of facade, storefronts with real shop names, and signage. No image
 // file, no network request.
 import * as THREE from '../vendor/three.module.min.js';
-import { FACADES, SHOP_NAMES } from './config.js';
+import { FACADES } from './config.js';
+import { SHOP_NAMES, FONTS, treatmentFor } from './shops.js';
 import { range } from './rng.js';
 
 function canvasOf(width, height = width) {
@@ -367,72 +368,173 @@ export function createFacadeTextures(random) {
   });
 }
 
-/** Ground floors: big shop windows, the accent on the frames, and the shop's name on the fascia. */
+/** Set a line of type as large as `maxWidth` allows, and return the size it settled on. */
+function sizedType(ctx, text, weight, face, tracking, maxWidth, start) {
+  let size = start;
+  ctx.font = `${weight} ${size}px ${FONTS[face]}`;
+  let width = ctx.measureText(text).width + tracking * size * (text.length - 1);
+  while (width > maxWidth && size > 9) {
+    size -= 1;
+    ctx.font = `${weight} ${size}px ${FONTS[face]}`;
+    width = ctx.measureText(text).width + tracking * size * (text.length - 1);
+  }
+  return size;
+}
+
+/** Letter-spaced type, drawn glyph by glyph so the tracking is real. */
+function trackedType(ctx, text, x, y, tracking) {
+  const step = tracking * ctx.font.match(/(\d+(?:\.\d+)?)px/)[1];
+  let cursor = x;
+  for (const glyph of text) {
+    ctx.fillText(glyph, cursor + ctx.measureText(glyph).width / 2, y);
+    cursor += ctx.measureText(glyph).width + step;
+  }
+}
+
+/** Width of a tracked line, for centring and for fitting a rule under it. */
+function trackedWidth(ctx, text, tracking) {
+  const size = Number(ctx.font.match(/(\d+(?:\.\d+)?)px/)[1]);
+  return ctx.measureText(text).width + tracking * size * Math.max(0, text.length - 1);
+}
+
+function trackedStroke(ctx, text, x, y, tracking) {
+  const step = tracking * Number(ctx.font.match(/(\d+(?:\.\d+)?)px/)[1]);
+  let cursor = x;
+  for (const glyph of text) {
+    ctx.strokeText(glyph, cursor + ctx.measureText(glyph).width / 2, y);
+    cursor += ctx.measureText(glyph).width + step;
+  }
+}
+
+/**
+ * Ground floors: big shop windows, the accent on the frames, and the shop's own name on the fascia
+ * in the treatment the deck assigns it. One texture per name, never two names the same.
+ */
 export function createStorefrontTextures(random) {
-  const pool = [];
-  FACADES.forEach((facade, variantIndex) => {
-    const names = SHOP_NAMES[variantIndex] ?? SHOP_NAMES[0];
-    names.forEach((name) => {
-      const width = 256;
-      const height = 128;
-      const canvas = canvasOf(width, height);
-      const ctx = canvas.getContext('2d');
+  return SHOP_NAMES.map((rawName, index) => {
+    const style = treatmentFor(index);
+    const name = style.upper ? rawName.toUpperCase() : rawName;
+    const width = 384;
+    const height = 128;
+    const canvas = canvasOf(width, height);
+    const ctx = canvas.getContext('2d');
 
-      const base = facade.family === 'glass' ? '#2f434b' : facade.family === 'brick' ? '#4a3a30' : '#3c4a52';
-      ctx.fillStyle = base;
-      ctx.fillRect(0, 0, width, height);
+    // The wall behind the glass: dark for the banded signs, softer for the painted ones.
+    const wall = ctx.createLinearGradient(0, 0, 0, height);
+    wall.addColorStop(0, style.panel);
+    wall.addColorStop(1, '#241f1c');
+    ctx.fillStyle = wall;
+    ctx.fillRect(0, 0, width, height);
 
-      for (let pane = 0; pane < 4; pane += 1) {
-        const left = pane * 64 + 8;
-        const glass = ctx.createLinearGradient(left, 44, left, 118);
-        glass.addColorStop(0, '#43606b');
-        glass.addColorStop(0.5, '#5c808c');
-        glass.addColorStop(1, '#8aacb5');
-        ctx.fillStyle = glass;
-        ctx.fillRect(left, 44, 48, 74);
+    const fasciaHeight = style.fascia === 'blade' ? 34 : 44;
 
-        const glow = ctx.createLinearGradient(left, 66, left + 48, 118);
-        glow.addColorStop(0, `rgba(255,220,170,${range(random, 0.08, 0.3).toFixed(2)})`);
-        glow.addColorStop(1, 'rgba(255,220,170,0)');
-        ctx.fillStyle = glow;
-        ctx.fillRect(left, 66, 48, 52);
+    // Four panes of glass, with a lit interior behind them.
+    const paneCount = 4;
+    const paneGap = 8;
+    const paneWidth = (width - paneGap * (paneCount + 1) - 26) / paneCount;
+    for (let pane = 0; pane < paneCount; pane += 1) {
+      const left = paneGap + pane * (paneWidth + paneGap);
+      const top = fasciaHeight + 10;
+      const glass = ctx.createLinearGradient(left, top, left, height - 10);
+      glass.addColorStop(0, style.windows);
+      glass.addColorStop(0.55, '#7ba3ad');
+      glass.addColorStop(1, '#b6cfd2');
+      ctx.fillStyle = glass;
+      ctx.fillRect(left, top, paneWidth, height - top - 12);
 
-        // Goods in the window: a few bright blocks so it is not a mirror.
-        for (let item = 0; item < 3; item += 1) {
-          ctx.fillStyle = ['#d8b478', '#b8523f', '#e8e0cc', '#5f8d6a'][Math.floor(random() * 4)];
-          const bx = left + range(random, 4, 30);
-          const by = 104 - range(random, 0, 16);
-          ctx.fillRect(bx, by, range(random, 6, 14), range(random, 8, 18));
-        }
+      const glow = ctx.createLinearGradient(left, top + 18, left + paneWidth, height - 12);
+      glow.addColorStop(0, `rgba(255,214,152,${range(random, 0.1, 0.34).toFixed(2)})`);
+      glow.addColorStop(1, 'rgba(255,214,152,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(left, top + 14, paneWidth, height - top - 26);
 
-        ctx.strokeStyle = facade.accent;
-        ctx.lineWidth = 4;
-        ctx.strokeRect(left, 44, 48, 74);
+      // Goods stacked against the glass, so it is a shop and not a mirror.
+      for (let item = 0; item < 3; item += 1) {
+        ctx.fillStyle = ['#d8b478', '#b8523f', '#e8e0cc', '#5f8d6a', '#c4885a'][Math.floor(random() * 5)];
+        ctx.fillRect(
+          left + range(random, 4, Math.max(5, paneWidth - 14)),
+          height - range(random, 16, 40),
+          range(random, 6, 13),
+          range(random, 8, 18),
+        );
       }
 
-      // Fascia with the shop name in it.
-      ctx.fillStyle = facade.accent;
-      ctx.fillRect(0, 0, width, 30);
-      ctx.fillStyle = 'rgba(0,0,0,0.28)';
-      ctx.fillRect(0, 30, width, 4);
-      ctx.fillStyle = 'rgba(255,252,244,0.94)';
-      ctx.font = 'bold 19px "Helvetica Neue", Helvetica, Arial, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(name, width / 2, 16);
-      ctx.fillStyle = 'rgba(255,255,255,0.10)';
-      ctx.fillRect(0, height - 10, width, 10);
+      ctx.strokeStyle = 'rgba(18,24,26,0.6)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(left, top, paneWidth, height - top - 12);
+    }
 
-      // A door at one end, and a little grime along the base.
-      ctx.fillStyle = 'rgba(20,26,30,0.65)';
-      ctx.fillRect(width - 40, 62, 28, 56);
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      ctx.fillRect(0, height - 6, width, 6);
+    // The door, recessed at the right-hand end of the frontage.
+    ctx.fillStyle = 'rgba(14,20,24,0.78)';
+    ctx.fillRect(width - 26, fasciaHeight + 14, 20, height - fasciaHeight - 24);
+    ctx.fillStyle = 'rgba(232,224,206,0.5)';
+    ctx.fillRect(width - 24, fasciaHeight + 30, 16, 26);
 
-      pool.push({ map: finish(canvas, null), name, family: facade.family, accent: facade.accent });
-    });
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+
+    if (style.fascia === 'band' || style.fascia === 'blade') {
+      ctx.fillStyle = style.panel;
+      ctx.fillRect(0, 4, width, fasciaHeight - 8);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(0, fasciaHeight - 4, width, 4);
+      const align = style.fascia === 'blade' ? 'left' : 'center';
+      const room = style.fascia === 'blade' ? width - 90 : width - 32;
+      const size = sizedType(ctx, name, style.weight, style.face, style.tracking, room, 34);
+      ctx.fillStyle = style.ink;
+      ctx.font = `${style.weight} ${size}px ${FONTS[style.face]}`;
+      const baseline = 4 + (fasciaHeight - 8) / 2 + 1;
+      if (align === 'left') {
+        trackedType(ctx, name, 18, baseline, style.tracking);
+        // A small enamel plate at the far end of the band.
+        ctx.fillStyle = style.ink;
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(width - 58, baseline - 9, 34, 18);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = style.panel;
+        ctx.font = `700 10px ${FONTS.mono}`;
+        ctx.fillText('OPEN', width - 41, baseline + 1);
+      } else {
+        const lineWidth = trackedWidth(ctx, name, style.tracking);
+        trackedType(ctx, name, width / 2 - lineWidth / 2, baseline, style.tracking);
+      }
+    } else if (style.fascia === 'panel') {
+      const panelWidth = Math.min(width - 44, 70 + name.length * 13);
+      const left = 16;
+      ctx.fillStyle = 'rgba(10,14,16,0.35)';
+      ctx.fillRect(left + 3, 11, panelWidth, 30);
+      ctx.fillStyle = style.panel;
+      ctx.fillRect(left, 8, panelWidth, 30);
+      ctx.strokeStyle = style.ink;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(left + 5, 12, panelWidth - 10, 22);
+      const size = sizedType(ctx, name, style.weight, style.face, style.tracking, panelWidth - 26, 26);
+      ctx.fillStyle = style.ink;
+      ctx.font = `${style.weight} ${size}px ${FONTS[style.face]}`;
+      const lineWidth = trackedWidth(ctx, name, style.tracking);
+      trackedType(ctx, name, left + panelWidth / 2 - lineWidth / 2, 24, style.tracking);
+    } else {
+      // Outline: the name drawn straight onto the wall, with a rule beneath it.
+      const size = sizedType(ctx, name, style.weight, style.face, style.tracking, width - 70, 40);
+      ctx.font = `${style.weight} ${size}px ${FONTS[style.face]}`;
+      const lineWidth = trackedWidth(ctx, name, style.tracking);
+      ctx.strokeStyle = style.ink;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.92;
+      trackedStroke(ctx, name, width / 2 - lineWidth / 2, 26, style.tracking);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = style.panel;
+      ctx.fillRect(width / 2 - lineWidth / 2 - 6, 40, lineWidth + 12, 3);
+    }
+
+    // Grime along the pavement line and a soft shadow under the fascia.
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fillRect(0, height - 7, width, 7);
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillRect(0, fasciaHeight, width, 6);
+
+    return { map: finish(canvas, null), name, style: style.fascia, accent: style.panel, family: 'shop' };
   });
-  return pool;
 }
 
 /** A big flat sign with a word on it, for landmark fascia and rooftop boards. */
@@ -443,16 +545,45 @@ export function createSignTexture(text, options = {}) {
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = options.background ?? '#101d24';
   ctx.fillRect(0, 0, width, height);
-  ctx.strokeStyle = options.border ?? 'rgba(255,122,77,0.85)';
-  ctx.lineWidth = 6;
-  ctx.strokeRect(8, 8, width - 16, height - 16);
+  if (options.frame !== false) {
+    ctx.strokeStyle = options.border ?? 'rgba(255,122,77,0.85)';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(8, 8, width - 16, height - 16);
+  }
   ctx.fillStyle = options.colour ?? '#fff3df';
-  ctx.font = `bold ${options.size ?? Math.round(height * 0.52)}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-  ctx.textAlign = 'center';
+  const face = FONTS[options.face] ?? FONTS.sans;
+  const weight = options.weight ?? 800;
+  const tracking = options.tracking ?? 0.02;
+  const label = options.upper === false ? text : text.toUpperCase();
+  const size = options.size ?? Math.round(height * 0.52);
+  ctx.font = `${weight} ${size}px ${face}`;
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, width / 2, height / 2 + 2);
+  const step = tracking * size;
+  const total = trackedWidth(ctx, label, tracking);
+  let cursor = (width - total) / 2;
+  for (const glyph of label) {
+    ctx.fillText(glyph, cursor, height / 2 + 2);
+    cursor += ctx.measureText(glyph).width + step;
+  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
+  return texture;
+}
+
+/** A soft round smudge used as a contact shadow under a car or a walker. */
+export function createContactPatch() {
+  const size = 128;
+  const canvas = canvasOf(size);
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 2, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, 'rgba(0,0,0,0.62)');
+  gradient.addColorStop(0.55, 'rgba(0,0,0,0.34)');
+  gradient.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }

@@ -282,18 +282,23 @@ export function dressCorners(parent, random, colliders) {
   }
 }
 
-/** Water tanks, air units and aerials on the roofs, so the skyline is not bare boxes. */
+/** Water tanks, air units, aerials, parapets, stair bulkheads and the odd rooftop pool: no two roofs alike. */
 export function dressRoofs(parent, random, buildings) {
   const units = [];
   const tanks = [];
   const aerials = [];
+  const parapets = [];
+  const bulkheads = [];
+  const pools = [];
+  const dishes = [];
+  const pergolas = [];
 
   for (const building of buildings) {
-    if (building.height < 12) continue;
+    if (building.height < 10) continue;
+    const roofWidth = building.roofWidth ?? building.width;
+    const roofDepth = building.roofDepth ?? building.depth;
     const count = 1 + Math.floor(random() * 3);
     for (let index = 0; index < count; index += 1) {
-      const roofWidth = building.roofWidth ?? building.width;
-      const roofDepth = building.roofDepth ?? building.depth;
       const x = building.x + range(random, -roofWidth / 2 + 2, roofWidth / 2 - 2);
       const z = building.z + range(random, -roofDepth / 2 + 2, roofDepth / 2 - 2);
       if (random() < 0.6) {
@@ -307,6 +312,59 @@ export function dressRoofs(parent, random, buildings) {
         x: building.x + range(random, -2, 2),
         y: building.top + 2.4,
         z: building.z + range(random, -2, 2),
+      });
+    }
+
+    // A parapet around the roof edge: the thing that makes a block read as a building.
+    const rise = range(random, 0.55, 1.3);
+    const thickness = 0.34;
+    const edgeX = roofWidth / 2 - thickness / 2;
+    const edgeZ = roofDepth / 2 - thickness / 2;
+    parapets.push(
+      { x: building.x, y: building.top + rise / 2, z: building.z + edgeZ, scaleX: roofWidth, scaleY: rise, scaleZ: thickness },
+      { x: building.x, y: building.top + rise / 2, z: building.z - edgeZ, scaleX: roofWidth, scaleY: rise, scaleZ: thickness },
+      { x: building.x + edgeX, y: building.top + rise / 2, z: building.z, scaleX: thickness, scaleY: rise, scaleZ: roofDepth },
+      { x: building.x - edgeX, y: building.top + rise / 2, z: building.z, scaleX: thickness, scaleY: rise, scaleZ: roofDepth },
+    );
+
+    // The stair head, pushed into one corner.
+    if (building.height > 16 && random() < 0.72) {
+      const bulkWidth = range(random, 2.6, 4.2);
+      const bulkDepth = range(random, 2.4, 3.6);
+      const sideX = random() < 0.5 ? -1 : 1;
+      const sideZ = random() < 0.5 ? -1 : 1;
+      bulkheads.push({
+        x: building.x + sideX * (roofWidth / 2 - bulkWidth / 2 - 1.4),
+        y: building.top + 1.35,
+        z: building.z + sideZ * (roofDepth / 2 - bulkDepth / 2 - 1.4),
+        scaleX: bulkWidth, scaleY: 2.7, scaleZ: bulkDepth,
+        rotationY: range(random, -0.05, 0.05),
+      });
+    }
+
+    // Rooftop pools and sun decks on the low hotels along the waterfront.
+    if (building.height > 24 && building.height < 52 && random() < 0.16) {
+      pools.push({
+        x: building.x + range(random, -1.5, 1.5),
+        y: building.top + 0.35,
+        z: building.z + range(random, -1.5, 1.5),
+        scaleX: roofWidth * 0.46, scaleY: 0.5, scaleZ: roofDepth * 0.38,
+      });
+      pergolas.push({
+        x: building.x + roofWidth * 0.28,
+        y: building.top + 1.5,
+        z: building.z - roofDepth * 0.28,
+        rotationY: range(random, 0, Math.PI / 2),
+      });
+    }
+
+    if (building.height > 18 && random() < 0.34) {
+      dishes.push({
+        x: building.x + range(random, -roofWidth / 3, roofWidth / 3),
+        y: building.top + 1.0,
+        z: building.z + range(random, -roofDepth / 3, roofDepth / 3),
+        rotationY: range(random, 0, Math.PI * 2),
+        scaleY: range(random, 0.7, 1.25),
       });
     }
   }
@@ -326,7 +384,41 @@ export function dressRoofs(parent, random, buildings) {
     new THREE.MeshStandardMaterial({ color: 0x7d8487, roughness: 0.5, metalness: 0.6 }),
     aerials,
   );
-  parent.add(unitMesh);
-  parent.add(tankMesh);
-  parent.add(aerialMesh);
+  const parapetMesh = makeInstanced(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: 0xd6cbb6, roughness: 0.92 }),
+    parapets,
+  );
+  const bulkheadMesh = makeInstanced(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: 0xbfae94, roughness: 0.88 }),
+    bulkheads,
+  );
+  const poolMesh = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: 0x3fa9c4, roughness: 0.08, metalness: 0.35, emissive: 0x0d4152, emissiveIntensity: 0.5 }),
+    pools.length,
+  );
+  const dummy = new THREE.Object3D();
+  pools.forEach((pool, index) => {
+    dummy.position.set(pool.x, pool.y, pool.z);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(pool.scaleX, pool.scaleY, pool.scaleZ);
+    dummy.updateMatrix();
+    poolMesh.setMatrixAt(index, dummy.matrix);
+  });
+  const dishMesh = makeInstanced(
+    new THREE.ConeGeometry(0.75, 0.42, 10, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0xe6e3da, roughness: 0.7, side: THREE.DoubleSide }),
+    dishes,
+  );
+  const pergolaMesh = makeInstanced(
+    new THREE.BoxGeometry(3.2, 0.16, 2.4),
+    new THREE.MeshStandardMaterial({ color: 0xf1e6cd, roughness: 0.85 }),
+    pergolas,
+  );
+
+  for (const mesh of [unitMesh, tankMesh, aerialMesh, parapetMesh, bulkheadMesh, poolMesh, dishMesh, pergolaMesh]) {
+    parent.add(mesh);
+  }
 }

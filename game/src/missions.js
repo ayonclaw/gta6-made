@@ -1,7 +1,7 @@
 // The three jobs, in order, with objectives that the game actually checks: steal a car, reach the
 // pier, draw stars, shake them, shoot a man, come back to the wheel. Each pays out, each saves.
 import * as THREE from '../vendor/three.module.min.js';
-import { MISSIONS, CITY, roadCenter } from './config.js';
+import { MISSIONS, CITY, START_CASH, roadCenter } from './config.js';
 
 const INTRO_LINES = [
   ['SAL', 'Three years I kept your seat warm at the arcade, and this is how you come back?'],
@@ -16,7 +16,7 @@ export class Missions {
     this.step = 0;
     this.phase = 'idle';
     this.timer = 0;
-    this.cash = context.cash ?? 0;
+    this.cash = context.cash ?? START_CASH;
     this.completed = [];
     this.stoleCar = false;
     this.starsSeen = 0;
@@ -213,7 +213,7 @@ export class Missions {
     this.step = data.step ?? 0;
     this.phase = data.phase === 'active' ? 'active' : 'brief';
     this.completed = Array.isArray(data.completed) ? data.completed : [];
-    this.cash = typeof data.cash === 'number' ? data.cash : 0;
+    this.cash = typeof data.cash === 'number' ? data.cash : START_CASH;
     this.introSeen = Boolean(data.introSeen);
     this.timer = 0;
     this.placeScripted();

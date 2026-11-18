@@ -5,6 +5,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { CITY, CITY_HALF, BLOCK_SIZE, PED, blockCenter, roadCenter } from './config.js';
 import { range } from './rng.js';
 import { groundHeight, pushOutOfBoxes } from './city.js';
+import { createContactPatch } from './textures.js';
 
 const SHIRTS = ['#d9603b', '#2f6f8a', '#e6d6ae', '#5c8f4a', '#b8443c', '#f0eee6', '#3a3f52', '#c98a3c', '#6d5a8a', '#92b8c4'];
 const TROUSERS = ['#2f3b52', '#3d3a36', '#5b6470', '#26303a', '#7a6a52', '#4a4f57'];
@@ -71,6 +72,22 @@ export class Pedestrians {
     this.head = new THREE.InstancedMesh(headGeometry, material(0.66), capacity);
     this.hair = new THREE.InstancedMesh(hairGeometry, material(0.9), capacity);
     this.capacity = capacity;
+
+    // Contact patches: one soft smudge per walker, so feet meet the pavement.
+    const patchGeometry = new THREE.PlaneGeometry(1, 1);
+    patchGeometry.rotateX(-Math.PI / 2);
+    this.patches = new THREE.InstancedMesh(
+      patchGeometry,
+      new THREE.MeshBasicMaterial({
+        map: createContactPatch(), transparent: true, opacity: 0.55, depthWrite: false,
+        color: 0x0a1014, toneMapped: false,
+      }),
+      capacity,
+    );
+    this.patches.frustumCulled = false;
+    this.patches.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.patches.renderOrder = 1;
+    scene.add(this.patches);
 
     for (const mesh of [this.legs, this.torso, this.shoulders, this.head, this.hair]) {
       mesh.castShadow = true;
@@ -140,7 +157,46 @@ export class Pedestrians {
     }
     for (const corridor of corridors) corridor.centrality = 2;
 
-    return { rings, extra: [pier, pier, boardwalk], corridors };
+    // Crossings: the crowd gathers at the kerb and walks over, which is where a crowd reads.
+    const crossings = [];
+    for (let junctionX = 1; junctionX <= CITY.cells - 2; junctionX += 1) {
+      for (let junctionZ = 1; junctionZ <= CITY.cells - 2; junctionZ += 1) {
+        const x = roadCenter(junctionX);
+        const z = roadCenter(junctionZ);
+        crossings.push(makePath([{ x: x - 10, z: z + 11.4 }, { x: x + 10, z: z + 11.4 }], false));
+        crossings.push(makePath([{ x: x - 10, z: z - 11.4 }, { x: x + 10, z: z - 11.4 }], false));
+        crossings.push(makePath([{ x: x + 11.4, z: z - 10 }, { x: x + 11.4, z: z + 10 }], false));
+        crossings.push(makePath([{ x: x - 11.4, z: z - 10 }, { x: x - 11.4, z: z + 10 }], false));
+        for (const crossing of crossings.slice(-4)) crossing.centrality = 2;
+        // The middle junctions are where the crowd is: the same crossings, drawn three times, so a
+        // walker is three times as likely to be sent to the middle of the bay as to its edge.
+        for (const crossing of crossings.slice(-4)) {
+          crossings.push(crossing, crossing);
+        }
+      }
+    }
+
+    // Shopfronts: a short beat of pavement outside each named door, where people stop and look in.
+    const fronts = [];
+    const radius = BLOCK_SIZE / 2 - 1.7;
+    for (const building of this.city.buildings ?? []) {
+      if (!building.shop) continue;
+      const blockX = Math.round((building.x + CITY_HALF) / CITY.pitch - 0.5);
+      const blockZ = Math.round((building.z + CITY_HALF) / CITY.pitch - 0.5);
+      if (blockX < 0 || blockZ < 0 || blockX >= CITY.cells || blockZ >= CITY.cells) continue;
+      const cx = blockCenter(blockX);
+      const cz = blockCenter(blockZ);
+      const offX = building.x - cx;
+      const offZ = building.z - cz;
+      const half = Math.max(4, (Math.abs(offX) > Math.abs(offZ) ? building.depth : building.width) / 2 + 2);
+      const path = Math.abs(offX) > Math.abs(offZ)
+        ? makePath([{ x: cx + Math.sign(offX) * radius, z: building.z - half }, { x: cx + Math.sign(offX) * radius, z: building.z + half }], false)
+        : makePath([{ x: building.x - half, z: cz + Math.sign(offZ) * radius }, { x: building.x + half, z: cz + Math.sign(offZ) * radius }], false);
+      path.centrality = 1 + Math.max(0, 2 - Math.max(Math.abs(blockX - 2), Math.abs(blockZ - 2)));
+      fronts.push(path);
+    }
+
+    return { rings, extra: [pier, pier, boardwalk], corridors, crossings, fronts };
   }
 
   /** Choose a spot for a new walker: the avenues first, the block rings after. */
@@ -149,12 +205,20 @@ export class Pedestrians {
     let path;
     let distance;
 
-    if (index < 6) {
+    if (index < 20) {
       path = this.paths.extra[index % this.paths.extra.length];
       distance = range(random, 0, path.total);
-    } else if (index < 126) {
-      // Two walkers in three pace the avenue they can see; the rest spread over the blocks.
-      path = random() < 0.86
+    } else if (index < PED.count * 0.46) {
+      // Crossings: a queue at the kerb, walking over, walking back. This is what a crowd looks like.
+      path = this.paths.crossings[Math.floor(random() * this.paths.crossings.length)];
+      distance = range(random, 0, path.total);
+    } else if (index < PED.count * 0.66) {
+      // Shop doors: people stopping to look in a window.
+      path = this.paths.fronts[Math.floor(random() * this.paths.fronts.length)];
+      distance = range(random, 0, path.total);
+    } else if (index < PED.count * 0.9) {
+      // The rest pace the avenue they can see, with a few on the block rings.
+      path = random() < 0.84
         ? this.paths.corridors[Math.floor(random() * this.paths.corridors.length)]
         : this.paths.rings[Math.floor(random() * this.paths.rings.length)];
       distance = range(random, 0, path.total);
@@ -375,6 +439,7 @@ export class Pedestrians {
         this.hair.setMatrixAt(index, dummy.matrix);
         this.legs.setMatrixAt(index * 2, dummy.matrix);
         this.legs.setMatrixAt(index * 2 + 1, dummy.matrix);
+        this.patches.setMatrixAt(index, dummy.matrix);
         continue;
       }
 
@@ -383,6 +448,12 @@ export class Pedestrians {
       const bounce = Math.abs(Math.sin(person.stride * 1.6)) * 0.035 * moving;
       const cos = Math.cos(person.heading);
       const sin = Math.sin(person.heading);
+
+      dummy.position.set(person.x, person.y + 0.03, person.z);
+      dummy.rotation.set(0, person.heading, 0);
+      dummy.scale.set(1.5, 1, 1.5);
+      dummy.updateMatrix();
+      this.patches.setMatrixAt(index, dummy.matrix);
 
       dummy.position.set(person.x, person.y + bounce, person.z);
       dummy.rotation.set(0, person.heading, 0);
@@ -408,6 +479,7 @@ export class Pedestrians {
     this.head.instanceMatrix.needsUpdate = true;
     this.hair.instanceMatrix.needsUpdate = true;
     this.legs.instanceMatrix.needsUpdate = true;
+    this.patches.instanceMatrix.needsUpdate = true;
   }
 
   /** Walkers that can be shot: the nearest one along a ray, ignoring the dead. */

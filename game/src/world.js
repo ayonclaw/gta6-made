@@ -98,7 +98,7 @@ export function createWorld(canvas) {
   sunGlow.position.copy(sunDirection).multiplyScalar(1290);
   scene.add(sunGlow);
 
-  const sunLight = new THREE.DirectionalLight(0xffe9c2, 3.5);
+  const sunLight = new THREE.DirectionalLight(0xffe0b2, 4.6);
   sunLight.position.copy(sunDirection).multiplyScalar(240);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(WORLD.shadowMapSize, WORLD.shadowMapSize);
@@ -108,14 +108,19 @@ export function createWorld(canvas) {
   sunLight.shadow.camera.bottom = -WORLD.shadowRadius;
   sunLight.shadow.camera.near = 1;
   sunLight.shadow.camera.far = 780;
-  sunLight.shadow.bias = -0.0004;
-  sunLight.shadow.normalBias = 0.55;
+  sunLight.shadow.bias = -0.0006;
+  sunLight.shadow.normalBias = 0.42;
   scene.add(sunLight);
   scene.add(sunLight.target);
 
-  const hemi = new THREE.HemisphereLight(0xa9d5ff, 0xe8c79c, 0.78);
+  // The bounce: warm light coming back off the sand and the water, so shade is not dead grey.
+  const bounce = new THREE.DirectionalLight(0xff9c62, 0.62);
+  bounce.position.set(-SUN.x * 120, 26, -SUN.z * 120);
+  scene.add(bounce);
+
+  const hemi = new THREE.HemisphereLight(0x9dc6ff, 0xff9a5e, 0.44);
   scene.add(hemi);
-  scene.add(new THREE.AmbientLight(0xffe9d2, 0.28));
+  scene.add(new THREE.AmbientLight(0xffdcc0, 0.12));
 
   const resize = () => {
     const width = window.innerWidth;
