@@ -46,6 +46,13 @@ MAX_BYTES = 256 * 1024
 LONG_SIDE = 1280
 SHORT_SIDE = 480
 
+# A shot that is meant to prove the city is alive is only worth taking if the
+# frame is actually busy: cars under way and walkers on the pavement, counted
+# inside the camera frustum by the page's own projection before the shutter.
+FILL_BARS = {
+    "vista": {"cars": 10, "moving": 8, "walkers": 20},
+}
+
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -60,7 +67,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8333)
     parser.add_argument("--wait", type=int, default=5500, help="ms for traffic and crowds to settle")
+    parser.add_argument("--only", default="", help="shoot only these scene names, comma separated")
     args = parser.parse_args()
+    scenes = [s for s in SCENES if not args.only or s[1] in set(args.only.split(","))]
 
     SHOTS.mkdir(exist_ok=True)
     handler = functools.partial(Quiet, directory=str(GAME))
@@ -79,13 +88,29 @@ def main() -> int:
             lambda message: problems.append(f"console: {message.text}") if message.type == "error" else None,
         )
 
-        for name, scene in SCENES:
+        for name, scene in scenes:
             quality = 88
             target = SHOTS / name
             while True:
                 page.goto(f"{base}?shot={scene}&seed=1&quality=low", wait_until="domcontentloaded")
                 page.wait_for_function("window.__salmora && window.__salmora.frames > 4", timeout=120000)
                 page.wait_for_timeout(args.wait)
+                # a shot that has to show a living street is re-packed and
+                # measured right before the shutter, not trusted to the wait
+                bars = FILL_BARS.get(scene)
+                counts = page.evaluate("() => window.__salmora.restageFill()") if bars else None
+                if bars:
+                    if not counts:
+                        problems.append(f"{name} could not stage its street")
+                        break
+                    print(
+                        f"  {scene} frustum: {counts['cars']} cars ({counts['moving']} moving), "
+                        f"{counts['walkers']} walkers"
+                    )
+                    short = [f"{key} {counts[key]}/{bar}" for key, bar in bars.items() if counts[key] < bar]
+                    if short:
+                        problems.append(f"{name} frames too little life: {', '.join(short)}")
+                        break
                 state = page.evaluate(
                     "() => ({frames: window.__salmora.frames, staged: window.__salmora.staged,"
                     " wanted: window.__salmora.wanted, cash: window.__salmora.cash})"

@@ -10,7 +10,7 @@ import { Car } from './car.js';
 import { ChaseCamera } from './camera.js';
 import { Input } from './input.js';
 import { Hud } from './hud.js';
-import { CAR_NAME, START, WALK, districtAt } from './config.js';
+import { CAR_NAME, CITY, START, WALK, districtAt } from './config.js';
 import { Rng, hashSeed } from './rng.js';
 import { Traffic } from './traffic.js';
 import { Crowd } from './pedestrians.js';
@@ -90,6 +90,24 @@ const SHOTS = {
     focus: [40, 178],
     restock: 90,
     crowd: 80,
+    // Street 7 is the seafront avenue the eye looks down, the one street the
+    // respawner never fills (it clamps to STREETS - 2). The shot lays the fleet
+    // on its lanes and the crowd on its pavements instead, in metres.
+    fill: {
+      street: 7,
+      from: -90,
+      to: 170,
+      lane: 3.1,
+      cars: 46,
+      // walkers, in strips: the two pavements either side of the avenue, then
+      // the promenade the eye stands over, where a body is worth most pixels
+      walkers: 92,
+      strips: [
+        { z: -8.6, from: -90, to: 170, share: 0.3 },
+        { z: 8.6, from: -90, to: 170, share: 0.3 },
+        { z: 15.5, from: -50, to: 80, share: 0.4 },
+      ],
+    },
   },
 };
 
@@ -138,6 +156,7 @@ let mode = 'walk';
 let paused = false;
 let staged = false;
 let stagedFocus = null;
+let stagedFill = null;
 let nearCar = false;
 let frames = 0;
 let elapsed = 0;
@@ -391,6 +410,105 @@ window.addEventListener('resize', () => world.resize());
 
 /* --- staging ----------------------------------------------------------- */
 
+/* How far inside the frame an object has to sit to be counted as in shot:
+   the very edge of a render is not something a viewer reads. */
+const EDGE = 0.97;
+
+/** True when a world point lands inside the staged camera's frame. */
+function inFrame(x, y, z) {
+  const camera = world.camera;
+  camera.updateMatrixWorld(true);
+  const view = new THREE.Vector3(x, y, z).applyMatrix4(
+    camera.matrixWorldInverse.copy(camera.matrixWorld).invert(),
+  );
+  if (view.z > -1) return false;
+  const ndc = new THREE.Vector3(x, y, z).project(camera);
+  return Math.abs(ndc.x) <= EDGE && Math.abs(ndc.y) <= EDGE;
+}
+
+/** What the staged frame actually holds, projected exactly as it renders. */
+function frustumCounts() {
+  let cars = 0;
+  let moving = 0;
+  let walkers = 0;
+  for (const car of traffic.cars) {
+    if (!car.alive || !inFrame(car.x, 1, car.z)) continue;
+    cars++;
+    if (Math.abs(car.speed) > 0.5) moving++;
+  }
+  for (const person of crowd.people) {
+    if (inFrame(person.x, 1.2, person.z)) walkers++;
+  }
+  return { cars, moving, walkers };
+}
+
+/** Run the ambient sim forward without waiting on the wall clock, so wheels are
+ *  turning and legs mid-swing on the frame that gets shot. */
+function stepStaged(seconds) {
+  const dt = 1 / 60;
+  for (let t = 0; t < seconds; t += dt) {
+    traffic.update(dt, { focus: stagedFocus, car: null, body: null, peds: crowd });
+    crowd.update(dt, { car: null, traffic });
+  }
+}
+
+/** Lay the street a shot frames with traffic and walkers. `traffic.reseed` only
+ *  ever uses the inner streets (it clamps to STREETS - 2), so the seafront
+ *  avenue a vista looks down never receives a car of its own and the frame
+ *  reads as an empty town. The shot puts the fleet on its lanes and the crowd
+ *  on its pavements by hand; a fixed scatter, not game RNG, so every capture
+ *  is the same frame. */
+function stageFill(fill) {
+  const line = -CITY.half + fill.street * CITY.pitch + CITY.street / 2;
+  const span = fill.to - fill.from;
+  const fleet = Math.min(fill.cars, traffic.cars.length);
+  const perLane = Math.max(1, Math.ceil(fleet / 2));
+  const step = span / perLane;
+  for (let i = 0; i < fleet; i++) {
+    const car = traffic.cars[i];
+    const dir = i % 2 === 0 ? -1 : 1;
+    // lanes alternate by parity and a fixed quarter-slot scatter breaks the
+    // even spacing, so the avenue reads as traffic in flow and not two rows
+    // of parked cars
+    const slot = Math.floor(i / 2) + 0.5 + ((i * 0.618) % 1 - 0.5) * 0.5;
+    car.alive = true;
+    car.axis = 'x';
+    car.dir = dir;
+    car.line = line + dir * fill.lane;
+    car.along = fill.from + slot * step;
+    car.x = car.along;
+    car.z = car.line;
+    car.yaw = dir > 0 ? -Math.PI / 2 : Math.PI / 2;
+    car.speed = 6 + (i % 5) * 0.7;
+    car.cruise = 10.5 + (i % 4) * 1.2;
+    car.stuck = 0;
+    car.next = null;
+    car.nextK = undefined;
+    car.nextClaimed = false;
+  }
+  let used = 0;
+  for (const band of fill.strips) {
+    const many = Math.min(Math.round(fill.walkers * band.share), crowd.people.length - used);
+    const width = band.to - band.from;
+    for (let i = 0; i < many; i++) {
+      const person = crowd.people[used++];
+      const x = band.from + ((i + 0.5) / Math.max(1, many)) * width;
+      const z = line + band.z;
+      person.x = x;
+      person.z = z;
+      person.y = CITY.kerb;
+      person.state = 'walk';
+      person.speed = person.walk;
+      person.tx = x + (i % 2 ? 8 : -8);
+      person.tz = z;
+      person.timer = 30;
+      person.yaw = i % 2 ? -Math.PI / 2 : Math.PI / 2;
+      person.home = { x, z, r: 4 };
+    }
+  }
+  stepStaged(1.6);
+}
+
 function applyShot(name) {
   const pose = SHOTS[name];
   if (!pose) return false;
@@ -412,6 +530,12 @@ function applyShot(name) {
     new THREE.Vector3(pose.look[0], pose.look[1], pose.look[2]),
     pose.fov,
   );
+  // a shot that frames a street the respawner leaves empty packs it itself,
+  // once the eye is where the capture will hold it
+  if (pose.fill) {
+    stagedFill = pose.fill;
+    stageFill(pose.fill);
+  }
   hud.showTitle(Boolean(pose.titleCard));
   hud.setSpeed(null);
   hud.veiled(false);
@@ -632,6 +756,17 @@ window.__salmora = {
     chase.yaw = yaw;
     chase.pos.set(x + Math.sin(yaw) * 6, 3, z + Math.cos(yaw) * 6);
   },
+
+  /** Re-pack a staged frame that fills its own street, then report what the
+   *  camera holds. A capture that misses the bar is not worth taking. */
+  restageFill() {
+    if (!stagedFill) return null;
+    stageFill(stagedFill);
+    return frustumCounts();
+  },
+
+  /** What the current frame holds: cars, how many of them moving, walkers. */
+  frustum: frustumCounts,
 
   report() {
     const info = world.renderer.info;
