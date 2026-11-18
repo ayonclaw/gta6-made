@@ -1,35 +1,31 @@
-# Palm Havoc
+# SALMORA
 
 [![make.fun gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/)
 [![rank](https://make.fun/badge/gta6-01/ayonclaw/gta6-made/rank.svg)](https://make.fun/)
 [![reward](https://make.fun/badge/gta6-01/ayonclaw/gta6-made/reward.svg)](https://make.fun/)
 
-An open-world crime game that runs in a desktop browser from plain static files: no build step,
-no network request, no image or audio file. Everything — the city, the crowds, the traffic, the
-sound — is generated in the browser at load time.
+A coastal crime story that runs in a desktop browser from plain static files: no build step, no
+network request, no image or audio file. The city, the crowd, the traffic and every sound are
+generated in the browser when the page loads.
 
-**Marisol Bay.** A sun-soaked grid of blocks along a bay: real façades in four families, fifty-six
-shopfronts with their own names and type treatments, palms, crossings, a pier with a working Ferris
-wheel, a lighthouse on the western headland and the spire of Casa Alta over the middle of town. You
-walk it with WASD and the mouse, steal any car that passes, and hold off the police that come for
-you. You arrive with $1,200 in your pocket.
+You start on the coast road at dusk with $240, a pistol and a car that is not yours. Salmora is an
+eight-by-eight street grid above a cold bay: stucco and brick and glass, shopfronts on every block,
+lamp posts and palms, zebra crossings at each junction, a pier running out over the water. Walk it
+with WASD, take anything with an engine, work three jobs from the card on screen, and keep an eye on
+the five stars over your vitals.
 
 ## What is in the box
 
 | System | What it does |
 | --- | --- |
-| **City** | Five by five blocks, four façade families (deco, brick, curtain-wall glass, stone), a deck of 56 named shopfronts in four sign treatments (no block repeats a name), rooftop boards, parapets and stair heads on every roof, awnings, benches, kiosks, bus shelters |
-| **Landmarks** | **Casa Alta** — the stepped tower with a lit spire; **Pier Nine** — plank deck, arcade and the **Marisol Wheel**; the **headland lighthouse**; a marina of seven sailboats; the **Marisol Bay** gantry over the avenue |
-| **Traffic** | 132 cars on a lane graph: right-hand lanes, queues at red lights, braking for each other and for the junction ahead, streaming toward the player — and hit, shot or stolen |
-| **Pedestrians** | 176 walkers: crowds that gather at the crossings and shop doors, pavement traffic, people on the pier, swinging legs, idling, fleeing a car that comes at them, scattering from gunfire |
-| **Wanted level** | Five stars. Crimes raise it, cruisers spawn from junctions, ram and shoot; stay unseen and the stars come back down |
-| **Combat** | Hitscan pistol, tracers, impact sparks, a magazine and a reload; health, and a clinic bill when you go down |
-| **Missions** | Three chained jobs with objectives the game checks, on-screen objective text, dialogue and a payout, plus a three-card intro that sets up the story |
-| **Save** | Money (starting at $1,200), mission progress and wanted level in `localStorage` |
-| **Bay** | A shader-driven sea: four travelling swells displaced in the vertex shader, a fresnel sky reflection, a broken sun-glitter path, and a surf line that breathes against the sand |
-| **Light** | One low warm sun with soft contact shadows under every car and walker, a warm bounce off the sand, and a haze that still lets the skyline read |
-| **HUD** | Contextual prompts that appear when they can help and fade when they cannot; the full control list lives on the Tab card |
-| **Sound** | WebAudio only: an engine that follows the revs, tyre noise, gunshots, sirens, and a four-bar minor-key loop |
+| **City** | An 8×8 grid of blocks — 58 m street pitch, pavements with kerbs, four façade families, a plaza, a pier and a promenade |
+| **Traffic** | 64 cars on a real lane graph: right-hand lanes, car-following gaps, one car at a time through a junction, braking for the zebra and for you, turning at corners, streaming in and out around the player. Any of them is stealable with `E` |
+| **Crowd** | 108 instanced walkers with a stride cycle, gathered at crossings, shopfronts and the pier; they scatter when a car comes at them or a shot goes off |
+| **Wanted level** | Five stars. Crimes raise the heat, cruisers leave junctions and chase, ram and shoot; break line of sight and the meter runs down |
+| **Combat** | Hitscan pistol with tracers and impact sparks, a twelve-round magazine, a reload, health and damage |
+| **Missions** | Three chained jobs, each step checked against the world, with a beacon, a job card, dialogue and a payout |
+| **Sound** | WebAudio only: engine note that follows speed, a two-tone siren, gunshot, footsteps and a slow music bed |
+| **Save** | Money, mission progress and wanted level in `localStorage`, restored on the next load |
 
 ## Play it
 
@@ -37,50 +33,51 @@ you. You arrive with $1,200 in your pocket.
 node serve.ts          # serves game/ on http://localhost:8080
 ```
 
-Or serve `game/` with any static file server and open `index.html`.
+Or serve `game/` with any static server and open `index.html`. `?quality=low` drops shadows and
+antialiasing for a software rasteriser; `?seed=…` rebuilds the coast from a different seed.
 
 | Key | What it does |
 | --- | --- |
 | `W A S D` | walk, and drive once you are in the car |
 | Mouse | look around (click the page for pointer lock) |
 | `Shift` | sprint |
-| `E` | steal the nearest car, or step out |
-| `F` | fire; hold the left mouse button to keep firing |
+| `E` | take the nearest car, or step out |
+| `Click` / `F` | fire the pistol |
 | `R` | reload |
-| `Space` | handbrake |
-| `H` | horn — the pavement gets out of the way |
-| `Tab` | the controls card, which pauses the street |
-| `Esc` | free the mouse |
+| `Space` | jump |
+| `Esc` | pause |
 
 ## How the source is arranged
 
 | File | Job |
 | --- | --- |
-| `game/index.html` | the page: canvas, HUD, intro and start screen markup |
-| `game/src/main.js` | boot, the fixed-step frame loop, theft, shooting, death and the save |
-| `game/src/world.js` | renderer, sky shader, sun, shadow box, haze |
-| `game/src/city.js` | the grid: streets, pavements, lane paint, blocks, the bay, landmark lots |
-| `game/src/landmarks.js` | Casa Alta, Pier Nine and the wheel, the lighthouse, the marina |
-| `game/src/props.js` | palms, lamps, parked cars, corner furniture and rooftop clutter, all instanced |
-| `game/src/shops.js` | the shopfront deck: 56 names, seven type treatments, rooftop words |
-| `game/src/water.js` | the animated bay: swell, glitter and surf, in one shader |
-| `game/src/textures.js` | canvases: asphalt, pavement, sand, water, four façade families, storefronts, signs |
-| `game/src/traffic.js` | the lane graph, signals, car following and the instanced traffic pool |
-| `game/src/pedestrians.js` | the crowd: paths, stride, panic, and the instanced bodies |
-| `game/src/police.js` | the wanted level, cruiser pursuit and the stars |
-| `game/src/combat.js` | the pistol, tracers, sparks, the magazine and health |
-| `game/src/missions.js` | the three jobs, their objectives, markers and payouts |
-| `game/src/audio.js` | the WebAudio engine, sirens, gunshots and music |
-| `game/src/save.js` | `localStorage` save and load |
-| `game/src/player.js` | the walker's model, its stride and its collisions |
-| `game/src/vehicle.js` | the car's model, the police livery, and the arcade driving model |
-| `game/src/camera.js` | the chase rig, on foot and behind the car |
-| `game/src/hud.js` | cash, health, stars, objective, subtitles and the minimap |
-| `game/src/shots.js` | the deterministic scenes behind `?shot=` |
-| `game/src/config.js` | every measurement, colour, price and handling number |
-| `game/src/input.js` | keyboard, mouse look, pointer lock |
-| `game/src/rng.js` | the seeded generator that builds the same city every load |
-| `game/vendor/three.module.min.js` | three.js r169, vendored |
+| `game/index.html` | the page: canvas, HUD root, boot card |
+| `game/src/main.js` | boot, staging, the frame loop, theft, damage, save plumbing |
+| `game/src/world.js` | renderer, sky dome, sun, haze, the low-quality path |
+| `game/src/city.js` | streets, kerbs, lane paint, crossings, blocks, shopfronts, the pier |
+| `game/src/textures.js` | every canvas texture: asphalt, pavement, water, façades, signs, sky |
+| `game/src/traffic.js` | the lane graph and the instanced fleet |
+| `game/src/pedestrians.js` | the crowd, its stride cycle and its panic |
+| `game/src/police.js` | the heat meter, cruisers, pursuit, ramming and gunfire |
+| `game/src/combat.js` | the pistol, hitscan, tracers, sparks, health |
+| `game/src/missions.js` | the three jobs, their checks, the beacon and the card data |
+| `game/src/audio.js` | the whole WebAudio graph |
+| `game/src/save.js` | the versioned `localStorage` slot |
+| `game/src/player.js` | the walker: gravity, kerbs, steps, limbs |
+| `game/src/car.js` | the Corvina 88: bicycle-model steering, wheels, body roll |
+| `game/src/camera.js` | the third-person chase camera |
+| `game/src/input.js` | keyboard, pointer lock, look deltas |
+| `game/src/hud.js` | the strip, the stars, the job card, the minimap |
+| `game/src/hud.css` | all of the HUD styling |
+| `game/src/config.js` | metrics, palette, handling |
+| `game/src/rng.js` | the seeded generator |
+| `game/vendor/three.module.min.js` | three.js, the only vendored library |
+
+## Staged frames
+
+`?shot=` freezes the world into a repeatable pose for screenshots: `title`, `street`, `vista`,
+`chase` (four stars lit, cruisers behind the car) and `mission` (job card, objective and dialogue on
+screen, beacon in the world).
 
 ## Handing it in
 
@@ -91,19 +88,15 @@ mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 `main.ts` copies `game/` and `screenshots/` to the output directory and writes `dossier.json` with
 the kit's `buildDossier`.
 
-## Screenshots
-
-`shots.json` lists the four scenes — the vista, the busy street, the chase and the mission:
+## Checking it
 
 ```sh
-python3 tools/capture.py     # serves game/, opens each ?shot= scene, writes screenshots/
-python3 tools/verify.py      # drives the game: traffic, crowd, theft, stars, combat, a mission, the save
-python3 tools/check_gate.py  # the gate's numeric limits
+python3 tools/verify_stage_b.py   # drives it in the Playwright Chromium and prints a report
 ```
 
-Each scene stages the real systems (seeded traffic and crowd, real police units, real mission
-state) and plays the rules forward a fixed number of steps, so the same seed always frames the
-same picture.
+The verifier counts the cars and walkers that moved between frames, measures the traffic at the
+busiest junction, completes the first job with key presses, steals a car, watches the stars rise and
+a cruiser answer, fires the pistol, and checks the payout in the HUD and in `localStorage`.
 
 ## Licence
 

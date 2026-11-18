@@ -49,21 +49,21 @@ def main():
         errors = []
         page.on("pageerror", lambda e: errors.append("pageerror: " + str(e)))
         page.on("console", lambda m: errors.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
-        page.goto(f"http://127.0.0.1:{args.port}/index.html?shot={args.shot}&seed=1", wait_until="load")
-        page.wait_for_function("window.palmHavoc && window.palmHavoc.ready === true", timeout=90000)
+        page.goto(f"http://127.0.0.1:{args.port}/index.html?shot={args.shot}&seed=1", wait_until="domcontentloaded")
+        page.wait_for_function("window.__salmora && window.__salmora.frames > 3", timeout=120000)
+        page.set_default_timeout(120000)
         page.wait_for_timeout(args.wait)
         page.screenshot(path=str(out), type="jpeg", quality=90)
         info = page.evaluate("""() => {
-          const h = window.palmHavoc;
+          const h = window.__salmora;
           return {
             cars: h.traffic.cars.filter(c => c.alive).length,
             moving: h.traffic.cars.filter(c => c.alive && c.speed > 0.4).length,
-            peds: h.pedestrians.people.length,
-            living: h.pedestrians.living,
+            peds: h.crowd.people.length,
             stars: h.police.stars,
             units: h.police.units.length,
-            tris: h.renderer.info.render.triangles,
-            calls: h.renderer.info.render.calls,
+            tris: h.world.renderer.info.render.triangles,
+            calls: h.world.renderer.info.render.calls,
           };
         }""")
         browser.close()

@@ -58,12 +58,13 @@ def main():
         browser = playwright.chromium.launch(executable_path=CHROME, args=ARGS)
         page = browser.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=1)
         page.set_default_timeout(120000)
+        page.set_default_navigation_timeout(120000)
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
         for shot in shots:
-            page.goto(base + shot["query"], wait_until="load")
-            page.wait_for_function("window.palmHavoc && window.palmHavoc.ready === true", timeout=60000)
+            page.goto(base + shot["query"], wait_until="domcontentloaded")
+            page.wait_for_function("window.__salmora && window.__salmora.frames > 4", timeout=120000)
             page.wait_for_timeout(args.wait)
             target = SHOTS / shot["name"]
             page.screenshot(path=str(target), type="jpeg", quality=88)

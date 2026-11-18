@@ -15,8 +15,9 @@ const CONTROLS = [
   ['Shift', 'run'],
   ['Space', 'jump'],
   ['Mouse', 'look around'],
-  ['E', 'enter / leave car'],
-  ['Wheel', 'camera zoom'],
+  ['Click / F', 'fire'],
+  ['R', 'reload'],
+  ['E', 'enter car / take a car'],
   ['Esc', 'pause'],
 ];
 
@@ -64,6 +65,40 @@ export class Hud {
     node('div', 'label', this.speedCell).textContent = 'Speed';
     this.speedValue = node('div', 'value', this.speedCell);
     this.speedValue.innerHTML = '0<small>KM/H</small>';
+
+    // sidearm
+    this.weaponCell = node('div', 'cell weapon', strip);
+    this.weaponCell.id = 'weaponCell';
+    node('div', 'label', this.weaponCell).textContent = 'Sidearm';
+    this.weaponValue = node('div', 'value ammo', this.weaponCell);
+    this.weaponValue.innerHTML = '12<small>/84</small>';
+
+    // wanted stars, a row of five over the strip
+    this.wanted = node('div', 'wanted', r);
+    this.wanted.id = 'wanted';
+    this.stars = [];
+    for (let i = 0; i < 5; i++) {
+      const star = node('span', 'star', this.wanted);
+      star.textContent = '\u2605';
+      this.stars.push(star);
+    }
+    this.wantedLabel = node('em', '', this.wanted);
+    this.wantedLabel.textContent = 'PD';
+
+    // job card
+    this.job = node('div', 'job', r);
+    this.job.id = 'job';
+    const jobTop = node('div', 'job-top', this.job);
+    this.jobTag = node('span', 'job-tag', jobTop);
+    this.jobTag.textContent = 'JOB';
+    this.jobPay = node('span', 'job-pay', jobTop);
+    this.jobPay.textContent = '$0';
+    this.jobTitle = node('div', 'job-title', this.job);
+    this.jobTitle.textContent = 'DOCK DUES';
+    this.jobText = node('div', 'job-text', this.job);
+    this.jobText.textContent = 'Meet the runner on the east pavement';
+    this.jobLine = node('div', 'job-line', this.job);
+    this.jobLine.textContent = '';
 
     // minimap
     const map = node('div', 'map', r);
@@ -121,8 +156,51 @@ export class Hud {
     this.healthValue.textContent = String(Math.round(v));
   }
 
-  setCash(value) {
+  /** One star per level the law has on you. */
+  setStars(level) {
+    const n = Math.max(0, Math.min(5, level | 0));
+    if (this._stars === n) return;
+    this._stars = n;
+    this.stars.forEach((star, i) => {
+      star.classList.toggle('lit', i < n);
+    });
+    this.wanted.classList.toggle('hot', n > 0);
+  }
+
+  setWeapon(mag, reserve, reloading) {
+    const sig = `${mag}/${reserve}/${reloading ? 1 : 0}`;
+    if (sig === this._weaponSig) return;
+    this._weaponSig = sig;
+    this.weaponValue.innerHTML = `${mag}<small>/${reserve}</small>`;
+    this.weaponCell.classList.toggle('empty', mag === 0);
+    this.weaponCell.classList.toggle('busy', Boolean(reloading));
+  }
+
+  setJob(job) {
+    if (!job) {
+      this.job.classList.remove('show');
+      return;
+    }
+    this.job.classList.add('show');
+    if (this.jobTitle.textContent !== job.title) this.jobTitle.textContent = job.title;
+    if (this.jobText.textContent !== job.text) this.jobText.textContent = job.text;
+    this.jobPay.textContent = `$${job.payout}`;
+    this.jobTag.textContent = job.tag || 'JOB';
+  }
+
+  say(text) {
+    this.jobLine.textContent = text;
+    this.jobLine.classList.add('say');
+    this.lineTimer = 6.5;
+  }
+
+  /** Money moved: flash the number so the payout is visible. */
+  setCash(value, pulse = false) {
     this.cashValue.textContent = `$${Math.round(value)}`;
+    if (!pulse) return;
+    this.cashValue.classList.remove('flash');
+    void this.cashValue.offsetWidth;
+    this.cashValue.classList.add('flash');
   }
 
   setDistrict(name) {
@@ -198,6 +276,10 @@ export class Hud {
       this.toastTimer -= dt;
       if (this.toastTimer <= 0) this.toast.classList.remove('show');
     }
+    if (this.lineTimer > 0) {
+      this.lineTimer -= dt;
+      if (this.lineTimer <= 0) this.jobLine.classList.remove('say');
+    }
     this.mapTimer -= dt;
     if (view && this.mapTimer <= 0) {
       this.mapTimer = 0.1;
@@ -255,6 +337,25 @@ export class Hud {
     ctx.moveTo(px(layout.pierX), pz(layout.quay));
     ctx.lineTo(px(layout.pierX), pz(layout.quay + 90));
     ctx.stroke();
+
+    // job marker
+    if (view.marker) {
+      const mx = px(view.marker.x);
+      const mz = pz(view.marker.z);
+      ctx.strokeStyle = 'rgba(240, 180, 90, 0.9)';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(mx, mz, 5.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(240, 180, 90, 0.85)';
+      ctx.beginPath();
+      ctx.moveTo(mx, mz - 3.2);
+      ctx.lineTo(mx + 3.2, mz);
+      ctx.lineTo(mx, mz + 3.2);
+      ctx.lineTo(mx - 3.2, mz);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     // car dot
     if (car) {
